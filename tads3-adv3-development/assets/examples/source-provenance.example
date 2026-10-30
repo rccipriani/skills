@@ -1,0 +1,11 @@
+# Copy this file; do not edit the template in place.
+source_repository=https://github.com/realnc/frobtads
+source_url=https://github.com/realnc/frobtads/releases/tag/v2.0
+release=v2.0
+commit=934b0e4900d9a3a1ab291aa711919f209276c421
+retrieved_utc=YYYY-MM-DDTHH:MM:SSZ
+verification_method=verified GitHub release metadata and signed commit; describe local trust verification
+# Optional archive hash. State whether upstream-published or locally recorded.
+archive_sha256=
+# Required for reproducible comparison of the exact unpacked tree used.
+source_tree_sha256=REPLACE_WITH_64_HEX_DIGITS
