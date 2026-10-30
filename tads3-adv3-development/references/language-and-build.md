@@ -32,6 +32,40 @@ Do not copy absolute paths blindly. Resolve a toolchain prefix from project conf
 
 `t3make -f game.t3m` performs an incremental release build. `t3make -d -f game.t3m` enables debugging information and `__DEBUG`. `-r` forces recompilation. Official compiler documentation notes that preinitialization timing differs in debug builds; use explicit `-pre` or `-nopre` only when the project understands the consequence.
 
+## Manifest-relative paths
+
+TADS 3.1.3 resolves relative manifest entries from the directory containing
+the `.t3m`, not from the shell's current working directory. This applies to
+source entries and to paths supplied to options such as `-Fo`, `-Fy`, and
+`-o`. Consequently, a manifest at `config/release.t3m` for this layout:
+
+```text
+project/
+  config/release.t3m
+  src/game.t
+  build/release/
+```
+
+uses paths that step out of `config/`:
+
+```text
+-Fo "../build/release/obj"
+-Fy "../build/release/obj"
+-o "../build/release/game.t3"
+-source "../src/game.t"
+```
+
+Invoke it as `t3make -f config/release.t3m` from the project root or through a
+wrapper; the entries still resolve from `config/`. Do not compensate for an
+assumed caller working directory. Create required output directories before
+compilation unless the surrounding build explicitly does so.
+
+Give a debug manifest its own paths, for example
+`../build/debug/obj` and `../build/debug/game-debug.t3`; sharing `-Fo` or `-Fy`
+between release and debug permits stale or incompatible intermediates. The
+verified manifests under `assets/examples/stabilization-project/config/`
+exercise this layout with TADS Compiler 3.1.3.
+
 ## Diagnostics
 
 When compilation fails:
@@ -39,9 +73,11 @@ When compilation fails:
 1. Capture the first diagnostic and its source location; later errors can cascade.
 2. Confirm the selected library is standard adv3 and the language paths match it.
 3. Confirm every referenced module is listed and every include path exists.
-4. Check missing semicolons, mismatched braces, property/method syntax, macro expansion, superclass names, and object identifiers.
-5. Rebuild with `-r` if dependencies or compile options changed.
-6. Separate each target's `-Fo` and `-Fy` directories. TADS intermediates are basename-oriented; duplicate source basenames can collide even when directories differ.
+4. When the manifest is below the project root, resolve every relative path
+   from the manifest directory and inspect the diagnostic's attempted path.
+5. Check missing semicolons, mismatched braces, property/method syntax, macro expansion, superclass names, and object identifiers.
+6. Rebuild with `-r` if dependencies or compile options changed.
+7. Separate each target's `-Fo` and `-Fy` directories. TADS intermediates are basename-oriented; duplicate source basenames can collide even when directories differ.
 
 ## Project-policy boundary
 

@@ -40,12 +40,22 @@ fi
 
 printf 'container_engine=%s\nimage=%s\n' "$ENGINE" "$IMAGE"
 "$ENGINE" run --rm \
+    --security-opt label=disable \
     --volume "$ROOT:/skill:ro" \
     --volume "$SOURCE_DIR:/source:ro" \
     --volume "$PROVENANCE:/provenance.txt:ro" \
-    --volume "$AUTHORIZATION:/authorization.txt:ro" \
+    --volume "$AUTHORIZATION:/run/host-authorization.txt:ro" \
     "$IMAGE" /bin/bash -lc '
 set -euo pipefail
+. /skill/tests/clean-container-support.sh
+staged_authorization=""
+cleanup_container_test() {
+    cleanup_staged_authorization "$staged_authorization"
+}
+trap cleanup_container_test EXIT
+trap "exit 129" HUP
+trap "exit 130" INT
+trap "exit 143" TERM
 printf "%s\n" "--- initial clean-environment detection ---"
 initial="$(/skill/scripts/tads3-toolchain.sh check)"
 printf "%s\n" "$initial"
@@ -64,21 +74,26 @@ else
 fi
 useradd --create-home --shell /bin/bash codex-test
 install -d -o codex-test -g codex-test /work/frobtads
+staged_authorization=/work/authorization.txt
+stage_authorization_record /run/host-authorization.txt "$staged_authorization" codex-test codex-test
 source_path="$(cd /source && pwd -P)"
 prefix=/work/frobtads/2.0-tads3.1.3
 printf "%s\n" "--- installation plan ---"
 runuser -u codex-test -- /skill/scripts/tads3-toolchain.sh install --source "$source_path" --prefix "$prefix" --allowed-root /work/frobtads
 printf "%s\n" "--- approved provision and validation ---"
-runuser -u codex-test -- /skill/scripts/tads3-toolchain.sh install --source "$source_path" --prefix "$prefix" --allowed-root /work/frobtads --provenance /provenance.txt --authorization-record /authorization.txt --execute
+runuser -u codex-test -- /skill/scripts/tads3-toolchain.sh install --source "$source_path" --prefix "$prefix" --allowed-root /work/frobtads --provenance /provenance.txt --authorization-record "$staged_authorization" --execute
+cleanup_staged_authorization "$staged_authorization"
+staged_authorization=""
+[[ ! -e /work/authorization.txt ]] || { printf "ERROR: staged authorization record was not cleaned up.\n" >&2; exit 1; }
 if compgen -G "/tmp/tads3-skill.*" >/dev/null; then
     printf "ERROR: temporary validation/build directories remain.\n" >&2
     exit 1
 fi
 printf "%s\n" "--- idempotence collision ---"
-if runuser -u codex-test -- /skill/scripts/tads3-toolchain.sh install --source "$source_path" --prefix "$prefix" --allowed-root /work/frobtads 2>/work/repeat.err; then
-    printf "ERROR: repeated provisioning unexpectedly succeeded.\n" >&2
-    exit 1
-fi
-grep -F "ERROR[collision]" /work/repeat.err
+set +e
+runuser -u codex-test -- /skill/scripts/tads3-toolchain.sh install --source "$source_path" --prefix "$prefix" --allowed-root /work/frobtads 2>/work/repeat.err
+collision_status=$?
+set -e
+report_expected_collision "$collision_status" /work/repeat.err
 printf "clean_container_validation=pass\n"
 '

@@ -1,25 +1,46 @@
 {
   "name": "tads3-adv3-development",
-  "version": "1.2.0",
+  "version": "1.3.1",
   "created": "2026-10-30",
   "updated": "2026-10-30",
   "scope": "TADS 3 with standard adv3",
   "validation": {
     "tested": {
-      "os": "Red Hat Enterprise Linux 9.5 (x86_64)",
+      "host_os": "Red Hat Enterprise Linux 9.5 (x86_64)",
+      "container_runtime": "Podman",
+      "guest_os": "Ubuntu 24.04.5 LTS",
       "frobtads": "2.0",
       "tads3_compiler": "3.1.3",
       "tads3_vm": "3.1.3",
       "adv3": "bundled with TADS 3.1.3",
-      "fixture": "release and debug compile/runtime semantic validation",
-      "regression_suite": "26 offline mock scenarios passed on 2026-10-30"
+      "fixture": "release and debug compile/runtime semantic validation plus adv3 stabilization regressions",
+      "regression_suite": "41 provisioning scenarios, reusable-container mocks, and containerized adv3 stabilization suite"
     },
     "supported_not_clean_environment_tested": [
       "RHEL 9 compatible distributions",
-      "Ubuntu and Debian",
+      "Debian",
       "WSL2 using a supported Linux distribution"
     ],
-    "clean_container": "automatic authorized source fetch supported; full provisioning run not executed"
+    "clean_container": {
+      "status": "PASS",
+      "date": "2026-10-30",
+      "host": "Red Hat Enterprise Linux 9.5 (x86_64)",
+      "runtime": "Podman",
+      "guest": "Ubuntu 24.04.5 LTS",
+      "frobtads": "2.0",
+      "tads3_compiler_vm": "3.1.3",
+      "library": "standard adv3",
+      "provisioning_and_validation": "PASS",
+      "duplicate_installation_protection": "PASS",
+      "source_verification_method": "not established by the supplied clean-container log excerpt"
+    },
+    "reusable_development_image": {
+      "image": "localhost/tads3-dev:2.0",
+      "base": "Ubuntu 24.04 LTS",
+      "runtime": "rootless Podman",
+      "network_for_build_and_gameplay": "disabled",
+      "live_integration_status": "PASS on 2026-10-30; release/debug stabilization fixture executed offline"
+    }
   },
   "provenance": {
     "frobtads_release": {
@@ -27,12 +48,15 @@
       "release": "v2.0",
       "commit": "934b0e4900d9a3a1ab291aa711919f209276c421",
       "release_page": "https://github.com/realnc/frobtads/releases/tag/v2.0",
-      "upstream_checksum_published": false
+      "upstream_checksum_published": false,
+      "freebsd_ports_archive_sha256": "c457860d3bf3db3c1129deddbd2c7a295602c7f59560d7e6e81df3bb77a23cd5",
+      "freebsd_ports_distfile": "realnc-frobtads-v2.0_GH0.tar.gz"
     },
     "sources": [
       "Official local TADS 3 System and Technical Manuals",
       "Official local adv3 guides and installed standard-adv3 library source",
       "Verified upstream FrobTADS release metadata",
+      "Official FreeBSD ports distinfo and GitHub fetch URL rules",
       "Neutral fixture and offline regression tests"
     ],
     "excluded": [

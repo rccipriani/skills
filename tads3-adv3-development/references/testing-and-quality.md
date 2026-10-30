@@ -37,6 +37,11 @@ Use deterministic setup and explicit noun phrases when ambiguity is not under te
 - dead-end detection and reachability;
 - scoring exactly once;
 - debug-only command presence in debug and absence in release.
+- both common player phrasings when several grammar words should dispatch the
+  same standard action;
+- locked travel from the starting side, synchronized paired-door state after
+  a puzzle change, and traversal in both directions;
+- ordinary-command reachability for every puzzle-critical object.
 
 Preserve original player transcripts as evidence. Add derived regression transcripts separately so normalization or appended commands do not rewrite what the player actually did.
 

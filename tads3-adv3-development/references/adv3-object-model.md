@@ -38,6 +38,36 @@ Location alone does not prove that the parser can resolve an object. Containment
 
 Use `moveInto()` for ordinary programmatic containment changes so notifications and `moved` state occur. See `travel-and-containment.md` before moving actors or bypassing notifications.
 
+## Nesting and accidental placement
+
+The `+` nesting level in TADS source supplies an implicit location. This is
+convenient for components and contents, but an extra `+` can place a later
+object inside the preceding container or under another object instead of in
+the room. For puzzle-critical objects, an explicit location makes intent
+unambiguous even when the surrounding source is rearranged:
+
+```tads
+generatorRoom: Room 'Generator Room';
+
+toolbox: OpenableContainer 'blue toolbox' 'toolbox' @generatorRoom;
++ spareFuse: Thing 'ceramic spare fuse' 'spare fuse';
+
+generator: Fixture 'compact emergency generator' 'generator' @generatorRoom;
+```
+
+If `x generator` fails, separate two questions. First, does its vocabulary
+contain the noun the player used? Second, is its actual location visible and
+in scope from the actor's room? Try an exact known noun, inspect enclosing
+containers and their open/closed state, and confirm the actor's location before
+adding synonyms. A vocabulary change cannot repair an object nested in an
+inaccessible container.
+
+Exercise every puzzle-critical object through ordinary release-game commands,
+not only debug inspection: examine it, perform its intended action, and repeat
+after relevant containment or room changes. The stabilization fixture declares
+its generator explicitly at `@workshop` and asserts that normal examination
+reaches it from that room.
+
 ## Quality checks
 
 - Examine every object before and after each state change.

@@ -44,6 +44,56 @@ Inspect `beforeTravel`, traveler hooks, connector methods, `actorTravel`, room e
 
 **Pattern:** Use `scriptedTravelTo()` for simple adjacent scripted steps; use the full connector/traveler APIs for more specialized movement. Use `moveInto()` only for non-travel relocation.
 
+## Paired lockable doors
+
+A plain `Door` is a paired travel connector, but merely adding an `isLocked`
+property does not add the lockable behavior that enforces travel restrictions.
+Use the standard lockable mix-in before `Door`. Give each room its own door
+side and pair them with `otherSide`:
+
+```tads
+workshop: Room 'Workshop'
+    north = workshopDoor
+;
+
+workshopDoor: LockableWithKey, Door
+    'sealed north steel door' 'sealed door' @workshop
+    otherSide = archiveDoor
+    isLocked = true
+    initiallyOpen = nil
+;
+
+archive: Room 'Archive'
+    south = archiveDoor
+;
+
+archiveDoor: LockableWithKey, Door
+    'sealed south steel door' 'sealed door' @archive
+    otherSide = workshopDoor
+    isLocked = true
+    initiallyOpen = nil
+;
+
+releaseButton: Button 'square release button' 'release button' @workshop
+    dobjFor(Push)
+    {
+        action()
+        {
+            workshopDoor.isLocked = nil;
+            archiveDoor.isLocked = nil;
+            "Both lock bolts retract. ";
+        }
+    }
+;
+```
+
+When a puzzle changes the lock programmatically, update both sides explicitly
+so descriptions, later actions, and tests observe one consistent state. Test
+the complete sequence: travel fails while locked; the puzzle changes both
+sides; travel succeeds to the far room; the far side reports unlocked; and
+return travel succeeds. This exact pattern is compiled and exercised in
+`assets/examples/stabilization-project/` with standard adv3 3.1.3.
+
 ## Primary evidence
 
 - Installed standard-adv3 `thing.t`, `actor.t`, and `travel.t`.

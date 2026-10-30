@@ -4,6 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 SCRIPT="$ROOT/scripts/tads3-toolchain.sh"
+. "$ROOT/tests/clean-container-support.sh"
 TEST_TMP="$(mktemp -d "${TMPDIR:-/tmp}/tads3-tests.XXXXXXXX")"
 PASS=0
 FAIL=0
@@ -116,6 +117,44 @@ MOCK
     chmod +x "$base/git"
 }
 
+make_mock_archive_tools() {
+    local base="$1"
+    mkdir -p "$base"
+    cat > "$base/curl" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "${MOCK_CURL_FAIL:-0}" != 1 ]] || exit 22
+output=""
+while (($#)); do
+    case "$1" in --output) output="$2"; shift 2 ;; *) shift ;; esac
+done
+[[ -n "$output" ]]
+cp -- "${MOCK_ARCHIVE_FILE}" "$output"
+MOCK
+    cat > "$base/sha256sum" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ $# -eq 1 && "$1" == *realnc-frobtads-v2.0_GH0.tar.gz ]]; then
+    if [[ "${MOCK_ARCHIVE_HASH_BAD:-0}" == 1 ]]; then printf '%064d  %s\n' 0 "$1"
+    else printf 'c457860d3bf3db3c1129deddbd2c7a295602c7f59560d7e6e81df3bb77a23cd5  %s\n' "$1"
+    fi
+else
+    exec /usr/bin/sha256sum "$@"
+fi
+MOCK
+    cat > "$base/wc" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == -c ]]; then
+    /usr/bin/wc -c >/dev/null
+    if [[ "${MOCK_ARCHIVE_SIZE_BAD:-0}" == 1 ]]; then printf '10\n'; else printf '5122899\n'; fi
+else
+    exec /usr/bin/wc "$@"
+fi
+MOCK
+    chmod +x "$base/curl" "$base/sha256sum" "$base/wc"
+}
+
 MOCK_ROOT="$TEST_TMP/mock layout with spaces"
 make_mock_layout "$MOCK_ROOT"
 SYSTEM_PATH=/usr/bin:/bin
@@ -130,14 +169,53 @@ expect_failure 'missing adv3 library' 'ERROR[discovery]: TADS3_LIB' env PATH="$M
 
 SOURCE="$TEST_TMP/FrobTADS source"
 make_mock_source "$SOURCE"
+SOURCE_HASH="$(cd "$SOURCE" && find . -type f -not -path './.git/*' -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')"
+VERIFY_PROVENANCE="$TEST_TMP/verify-source-provenance.txt"
+printf 'source_repository=https://github.com/realnc/frobtads\nrelease=v2.0\nverification_method=offline-test\nsource_tree_sha256=%s\n' "$SOURCE_HASH" > "$VERIFY_PROVENANCE"
+expect_success 'verified source and provenance pass read-only image gate' 'source_verification=pass' /bin/bash "$SCRIPT" verify-source --source "$SOURCE" --provenance "$VERIFY_PROVENANCE"
+
+HOST_AUTH="$TEST_TMP/host authorization"
+printf 'user_approved=yes\nsource=/source\nprefix=/work/frobtads/2.0-tads3.1.3\n' > "$HOST_AUTH"
+chmod 600 "$HOST_AUTH"
+HOST_AUTH_BEFORE="$(stat -c '%a|%u|%g|%s|%Y' "$HOST_AUTH")|$(sha256sum "$HOST_AUTH" | awk '{print $1}')"
+STAGED_AUTH="$TEST_TMP/staged authorization"
+if stage_authorization_record "$HOST_AUTH" "$STAGED_AUTH" "$(id -u)" "$(id -g)" && \
+        cmp -s "$HOST_AUTH" "$STAGED_AUTH" && [[ "$(stat -c %a "$STAGED_AUTH")" == 600 ]]; then
+    record_pass 'mode-600 host authorization record stages exactly with private permissions'
+else
+    record_fail 'mode-600 host authorization record stages exactly with private permissions' 'staging, content, or mode check failed'
+fi
+HOST_AUTH_AFTER="$(stat -c '%a|%u|%g|%s|%Y' "$HOST_AUTH")|$(sha256sum "$HOST_AUTH" | awk '{print $1}')"
+if [[ "$HOST_AUTH_BEFORE" == "$HOST_AUTH_AFTER" ]]; then record_pass 'authorization staging leaves host record unchanged'; else record_fail 'authorization staging leaves host record unchanged' "before=$HOST_AUTH_BEFORE after=$HOST_AUTH_AFTER"; fi
+cleanup_staged_authorization "$STAGED_AUTH"
+if [[ ! -e "$STAGED_AUTH" ]]; then record_pass 'staged authorization record is cleaned up'; else record_fail 'staged authorization record is cleaned up' 'staged file remains'; fi
+
+COLLISION_DIAG="$TEST_TMP/collision diagnostic"
+printf 'ERROR[collision]: installation prefix already exists\n' > "$COLLISION_DIAG"
+expect_success 'expected collision is reported as a passing negative test' 'PASS: duplicate installation correctly rejected' report_expected_collision 1 "$COLLISION_DIAG"
+expect_failure 'unexpected collision-test success fails the harness check' 'duplicate installation unexpectedly succeeded' report_expected_collision 0 "$COLLISION_DIAG"
+OTHER_DIAG="$TEST_TMP/other diagnostic"
+printf 'ERROR[source]: unrelated failure marker\n' > "$OTHER_DIAG"
+expect_failure 'unexpected collision-test failure preserves diagnostic and fails' 'ERROR[source]: unrelated failure marker' report_expected_collision 1 "$OTHER_DIAG"
+
+SOURCE_HASH="$(cd "$SOURCE" && find . -type f -not -path './.git/*' -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')"
+INVALID_PROVENANCE="$TEST_TMP/invalid authorization provenance"
+printf 'source_repository=https://github.com/realnc/frobtads\nrelease=v2.0\ncommit=934b0e4900d9a3a1ab291aa711919f209276c421\nverification_method=offline test fixture\nsource_tree_sha256=%s\nsource_tree_sha256_origin=locally_calculated\n' "$SOURCE_HASH" > "$INVALID_PROVENANCE"
+INVALID_ALLOWED="$TEST_TMP/invalid authorization installs"
+mkdir -p "$INVALID_ALLOWED"
+INVALID_PREFIX="$INVALID_ALLOWED/frobtads-test"
+INVALID_AUTH="$TEST_TMP/invalid authorization"
+printf 'user_approved=no\nsource=%s\nprefix=%s\n' "$SOURCE" "$INVALID_PREFIX" > "$INVALID_AUTH"
+expect_failure 'invalid authorization record is rejected' 'ERROR[authorization]' /bin/bash "$SCRIPT" install --source "$SOURCE" --prefix "$INVALID_PREFIX" --allowed-root "$INVALID_ALLOWED" --provenance "$INVALID_PROVENANCE" --authorization-record "$INVALID_AUTH" --execute
+
 MOCK_GIT="$TEST_TMP/mock git"
 make_mock_git "$MOCK_GIT"
 FETCH_CACHE="$TEST_TMP/fetch cache"
 expect_failure 'fetch requires explicit download authorization' 'ERROR[authorization]' env PATH="$MOCK_GIT:$SYSTEM_PATH" MOCK_FETCH_SOURCE="$SOURCE" /bin/bash "$SCRIPT" fetch --cache-dir "$FETCH_CACHE"
-expect_failure 'download failure leaves no cache entry' 'ERROR[download]' env PATH="$MOCK_GIT:$SYSTEM_PATH" MOCK_FETCH_SOURCE="$SOURCE" MOCK_FETCH_FAIL=1 /bin/bash "$SCRIPT" fetch --cache-dir "$FETCH_CACHE" --authorize-download
+expect_failure 'download failure leaves no cache entry' 'ERROR[download]' env PATH="$MOCK_GIT:$SYSTEM_PATH" MOCK_FETCH_SOURCE="$SOURCE" MOCK_FETCH_FAIL=1 /bin/bash "$SCRIPT" fetch --fetch-method git --cache-dir "$FETCH_CACHE" --authorize-download
 if [[ ! -e "$FETCH_CACHE/v2.0-934b0e4900d9a3a1ab291aa711919f209276c421" ]]; then record_pass 'failed download is not cached'; else record_fail 'failed download is not cached' 'cache entry exists'; fi
 expect_failure 'fetched commit identity mismatch is rejected' 'ERROR[integrity]' env PATH="$MOCK_GIT:$SYSTEM_PATH" MOCK_FETCH_SOURCE="$SOURCE" MOCK_FETCH_MISMATCH=1 /bin/bash "$SCRIPT" fetch --cache-dir "$FETCH_CACHE" --authorize-download
-expect_failure 'unverifiable commit signature is rejected' 'ERROR[signature]' env PATH="$MOCK_GIT:$SYSTEM_PATH" MOCK_FETCH_SOURCE="$SOURCE" MOCK_SIGNATURE_FAIL=1 /bin/bash "$SCRIPT" fetch --cache-dir "$FETCH_CACHE" --authorize-download
+expect_failure 'unverifiable commit signature is rejected' 'ERROR[signature]' env PATH="$MOCK_GIT:$SYSTEM_PATH" MOCK_FETCH_SOURCE="$SOURCE" MOCK_SIGNATURE_FAIL=1 /bin/bash "$SCRIPT" fetch --fetch-method git --cache-dir "$FETCH_CACHE" --authorize-download
 expect_success 'pinned signed commit is fetched and cached' 'fetch=downloaded-and-verified' env PATH="$MOCK_GIT:$SYSTEM_PATH" MOCK_FETCH_SOURCE="$SOURCE" /bin/bash "$SCRIPT" fetch --cache-dir "$FETCH_CACHE" --authorize-download
 expect_success 'verified cache is reused without network authorization' 'fetch=cache-reuse' env PATH="$MOCK_GIT:$SYSTEM_PATH" MOCK_FETCH_SOURCE="$SOURCE" MOCK_FETCH_FAIL=1 /bin/bash "$SCRIPT" fetch --cache-dir "$FETCH_CACHE"
 printf 'tamper\n' >> "$FETCH_CACHE/v2.0-934b0e4900d9a3a1ab291aa711919f209276c421/source/CMakeLists.txt"
@@ -145,6 +223,26 @@ expect_failure 'cached tree checksum mismatch is rejected' 'source tree checksum
 INCOMPLETE_CACHE="$TEST_TMP/incomplete cache"
 mkdir -p "$INCOMPLETE_CACHE/v2.0-934b0e4900d9a3a1ab291aa711919f209276c421/source"
 expect_failure 'incomplete cache entry is rejected without replacement' 'ERROR[cache]: incomplete cache entry' env PATH="$MOCK_GIT:$SYSTEM_PATH" MOCK_FETCH_SOURCE="$SOURCE" /bin/bash "$SCRIPT" fetch --cache-dir "$INCOMPLETE_CACHE" --authorize-download
+
+ARCHIVE_ROOT="$TEST_TMP/archive root"
+mkdir -p "$ARCHIVE_ROOT/frobtads-2.0"
+cp -R -- "$SOURCE"/. "$ARCHIVE_ROOT/frobtads-2.0"/
+ARCHIVE_FILE="$TEST_TMP/frobtads-v2.0.tar.gz"
+tar -czf "$ARCHIVE_FILE" -C "$ARCHIVE_ROOT" frobtads-2.0
+CORRUPT_ARCHIVE="$TEST_TMP/corrupt.tar.gz"
+printf 'not a tar archive\n' > "$CORRUPT_ARCHIVE"
+MOCK_ARCHIVE_TOOLS="$TEST_TMP/mock archive tools"
+make_mock_archive_tools "$MOCK_ARCHIVE_TOOLS"
+ARCHIVE_PATH="$MOCK_ARCHIVE_TOOLS:$SYSTEM_PATH"
+expect_failure 'archive download failure is rejected' 'ERROR[download]' env PATH="$ARCHIVE_PATH" MOCK_ARCHIVE_FILE="$ARCHIVE_FILE" MOCK_CURL_FAIL=1 /bin/bash "$SCRIPT" fetch --fetch-method archive --cache-dir "$TEST_TMP/archive download failure" --authorize-download
+expect_failure 'incomplete archive download is rejected' 'ERROR[integrity]: archive is incomplete' env PATH="$ARCHIVE_PATH" MOCK_ARCHIVE_FILE="$ARCHIVE_FILE" MOCK_ARCHIVE_SIZE_BAD=1 /bin/bash "$SCRIPT" fetch --fetch-method archive --cache-dir "$TEST_TMP/archive incomplete" --authorize-download
+expect_failure 'archive checksum mismatch is rejected' 'ERROR[integrity]: archive checksum mismatch' env PATH="$ARCHIVE_PATH" MOCK_ARCHIVE_FILE="$ARCHIVE_FILE" MOCK_ARCHIVE_HASH_BAD=1 /bin/bash "$SCRIPT" fetch --fetch-method archive --cache-dir "$TEST_TMP/archive checksum mismatch" --authorize-download
+expect_failure 'corrupted checksum-matching archive is rejected' 'ERROR[archive]' env PATH="$ARCHIVE_PATH" MOCK_ARCHIVE_FILE="$CORRUPT_ARCHIVE" /bin/bash "$SCRIPT" fetch --fetch-method archive --cache-dir "$TEST_TMP/archive corrupt" --authorize-download
+ARCHIVE_CACHE="$TEST_TMP/archive success cache"
+expect_success 'FreeBSD-checksummed archive is acquired' 'acquisition_method=freebsd-ports-sha256' env PATH="$ARCHIVE_PATH" MOCK_ARCHIVE_FILE="$ARCHIVE_FILE" /bin/bash "$SCRIPT" fetch --fetch-method archive --cache-dir "$ARCHIVE_CACHE" --authorize-download
+expect_success 'checksum-verified archive cache is reused offline' 'fetch=cache-reuse' env PATH="$ARCHIVE_PATH" MOCK_ARCHIVE_FILE="$ARCHIVE_FILE" MOCK_CURL_FAIL=1 /bin/bash "$SCRIPT" fetch --cache-dir "$ARCHIVE_CACHE"
+AUTO_CACHE="$TEST_TMP/automatic fallback cache"
+expect_success 'missing Git signing key falls back to verified archive' 'acquisition_method=freebsd-ports-sha256' env PATH="$MOCK_GIT:$ARCHIVE_PATH" MOCK_FETCH_SOURCE="$SOURCE" MOCK_SIGNATURE_FAIL=1 MOCK_ARCHIVE_FILE="$ARCHIVE_FILE" /bin/bash "$SCRIPT" fetch --cache-dir "$AUTO_CACHE" --authorize-download
 ALLOWED="$TEST_TMP/owned installs"
 mkdir -p "$ALLOWED"
 expect_failure 'invalid installation prefix' 'ERROR[destination]' /bin/bash "$SCRIPT" install --source "$SOURCE" --prefix /usr --allowed-root "$ALLOWED"
@@ -210,3 +308,4 @@ fi
 
 printf 'tests_passed=%d\ntests_failed=%d\n' "$PASS" "$FAIL"
 ((FAIL == 0))
+"$ROOT/tests/container-interface.sh"

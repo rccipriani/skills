@@ -15,7 +15,7 @@ Copy this entire directory to `${CODEX_HOME}/skills/tads3-adv3-development` or, 
 
 1. Read repository instructions and inspect its source layout, build manifests, scripts, tests, and working-tree state. Preserve local conventions unless technically harmful; do not impose this skill's examples as a layout.
 2. Determine whether the project uses standard adv3. Check includes and `-lib` entries instead of guessing.
-3. Run `scripts/tads3-toolchain.sh check` when toolchain locations or versions are unknown. Read [toolchain-provisioning.md](references/toolchain-provisioning.md) for installation, validation, or repair work.
+3. Choose native or reusable-container mode. Run `scripts/tads3-toolchain.sh check` when native toolchain locations or versions are unknown. Run `scripts/tads3-container.sh check` for container mode. Read [toolchain-provisioning.md](references/toolchain-provisioning.md) for installation, validation, or repair work and [container-development.md](references/container-development.md) for isolated builds and gameplay tests.
 4. Consult the relevant reference below before using an unfamiliar class, method, macro, hook, or compiler option. Prefer the installed library source and official manuals over memory.
 5. Model the world with existing adv3 classes and one authoritative state representation. Add the smallest coherent customization.
 6. Compile after meaningful changes. Add focused runtime coverage and exercise natural player phrasing, failure paths, state changes, and inherited behavior.
@@ -36,6 +36,8 @@ Do not install packages, invoke privilege escalation, download code, overwrite a
 - Blind-playtest handling and interface limitations: [blind-playtests.md](references/blind-playtests.md)
 - Local documentation/source discovery and API lookup: [documentation-index.md](references/documentation-index.md)
 - Supported provisioning operations and OS-specific procedures: [toolchain-provisioning.md](references/toolchain-provisioning.md)
+- Reusable Podman image, project interface, security, SELinux, and mode comparison: [container-development.md](references/container-development.md)
+- Fresh-session independent game-development evaluation protocol: [independent-container-evaluation.md](references/independent-container-evaluation.md)
 
 ## Toolchain operations
 
@@ -47,14 +49,33 @@ scripts/tads3-toolchain.sh plan
 scripts/tads3-toolchain.sh validate
 scripts/tads3-toolchain.sh repair
 scripts/tads3-toolchain.sh fetch --authorize-download
+scripts/tads3-toolchain.sh verify-source --source DIR --provenance FILE
 scripts/tads3-toolchain.sh install
 ```
 
-`check` and `plan` are read-only. `validate` writes only to a temporary directory and compiles the neutral fixture in `assets/examples/validation-project/`. `repair` diagnoses and proposes actions. `fetch` reuses a verified cache offline or, only with `--authorize-download`, retrieves the pinned FrobTADS commit and generates provenance. `install` prints a plan by default; execution requires `--execute`, verified provenance, an authorized user-owned root, a new prefix, and a separate record of prior approval for the exact source and destination. Read the provisioning reference first.
+`check` and `plan` are read-only. `validate` writes only to a temporary directory and compiles the neutral fixture in `assets/examples/validation-project/`. `repair` diagnoses and proposes actions. `fetch` reuses a verified cache offline or, only with `--authorize-download`, retrieves pinned FrobTADS source and generates provenance. Its default `auto` method prefers the signed Git commit, then uses the exact FreeBSD-checksummed GitHub archive if signature verification is unavailable; `--fetch-method git|archive` selects one method explicitly. `install` prints a plan by default; execution requires `--execute`, verified provenance, an authorized user-owned root, a new prefix, and a separate record of prior approval for the exact source and destination. Read the provisioning reference first.
+
+For reusable container development, build the Ubuntu 24.04 image only after explicit authorization, then compile and test projects with narrowly scoped host mounts:
+
+```sh
+scripts/tads3-container.sh image-build --source DIR --provenance FILE --authorize-build
+scripts/tads3-container.sh check
+scripts/tads3-container.sh validate --project /path/to/project \
+  --manifest game.t3m --output build/game.t3 --input tests/smoke.txt \
+  --expect '[GAME ready]'
+```
+
+Container compilation and gameplay are offline, disposable, rootless-Podman operations. They never depend on a host TADS installation. Do not authorize an image pull, package installation, source download, or SELinux relabel merely because a project needs compilation.
 
 ## Examples and validation assets
 
 Use `assets/examples/validation-project/` as a neutral, standalone standard-adv3 fixture. It demonstrates a stateful object, custom action and grammar, actor topics, a daemon, an achievement, and a `__DEBUG`-guarded command. Keep copied examples generic and adapt them to the target project's conventions.
+
+Use `assets/examples/stabilization-project/` and
+`tests/adv3-stabilization.sh` for verified examples of manifests below
+`config/`, standard `TurnOn` dispatch, paired lockable doors, and explicit
+puzzle-object placement. Detailed explanations remain in the routed reference
+documents above.
 
 ## Evidence rules
 

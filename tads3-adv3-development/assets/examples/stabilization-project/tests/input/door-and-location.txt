@@ -1,0 +1,11 @@
+x generator
+north
+regressionstatus
+push release button
+regressionstatus
+north
+regressionstatus
+south
+x generator
+quit
+y

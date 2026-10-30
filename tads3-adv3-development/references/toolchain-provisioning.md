@@ -36,10 +36,9 @@ The checked upstream FrobTADS 2.0 release is tag `v2.0`, commit
 `934b0e4900d9a3a1ab291aa711919f209276c421`, released 2021-05-09 at
 `https://github.com/realnc/frobtads/releases/tag/v2.0`. GitHub identifies the
 commit as signed/verified. The release page does not publish an archive
-checksum, so this skill does not claim an independently published archive
-checksum. The fetcher instead requires Git object identity and a valid commit
-signature from upstream key ID `15B600E72CA59238` in the operator's trusted
-local GnuPG keyring.
+checksum. FreeBSD's official ports repository independently publishes a
+SHA-256 for the exact v2.0 GitHub codeload distfile, providing a second
+verification method when the upstream signing key is unavailable.
 
 ## Detection and dependency planning
 
@@ -76,19 +75,49 @@ selects a branch, resolves `latest`, or follows a moving tag:
 scripts/tads3-toolchain.sh fetch --authorize-download
 ```
 
-The operation fetches only commit
-`934b0e4900d9a3a1ab291aa711919f209276c421` from the official repository,
-checks the fetched object ID, runs `git verify-commit --raw`, requires the
-expected upstream signing key ID, recognizes FrobTADS source markers, and
-calculates a deterministic unpacked-tree SHA-256. If the signing public key is
-not already available under the operator's trust policy, verification fails;
-the script does not silently retrieve or trust a key.
+Three method selections are supported:
+
+- `--fetch-method git` fetches only commit
+  `934b0e4900d9a3a1ab291aa711919f209276c421`, checks the fetched object ID,
+  runs `git verify-commit --raw`, and requires upstream signing key ID
+  `15B600E72CA59238`. The script never retrieves or silently trusts a key.
+- `--fetch-method archive` downloads only the exact URL
+  `https://codeload.github.com/realnc/frobtads/tar.gz/v2.0?dummy=/realnc-frobtads-v2.0_GH0.tar.gz`.
+  It requires size `5122899` and SHA-256
+  `c457860d3bf3db3c1129deddbd2c7a295602c7f59560d7e6e81df3bb77a23cd5`.
+- The default, `--fetch-method auto`, tries Git-signature verification first.
+  If Git transport or signature verification is unavailable, it tries the
+  checksum-verified archive. A wrong fetched Git object is an integrity error
+  and is not silently converted into a fallback.
+
+The checksum comes from FreeBSD ports
+[`games/frobtads/distinfo`](https://cgit.freebsd.org/ports/tree/games/frobtads/distinfo?id=b1e257a26b880a75cad55681701caf4ff39c9c36),
+which names `realnc-frobtads-v2.0_GH0.tar.gz`. The corresponding official port
+sets `DISTVERSIONPREFIX=v`, `DISTVERSION=2.0`, `USE_GITHUB=yes`, and
+`GH_ACCOUNT=realnc` in its
+[`Makefile`](https://cgit.freebsd.org/ports/tree/games/frobtads/Makefile?id=b1e257a26b880a75cad55681701caf4ff39c9c36).
+FreeBSD's official
+[`bsd.sites.mk`](https://cgit.freebsd.org/ports/tree/Mk/bsd.sites.mk)
+constructs GitHub downloads as
+`https://codeload.github.com/account/project/tar.gz/tag?dummy=/` followed by
+the ports distfile name. This establishes that the published checksum applies
+to the exact URL above; it is not transferred to GitHub's `/archive/`, API
+tarball, or release-asset endpoints.
+
+After authentication, the archive path is listed before extraction. Entries
+outside the single `frobtads-2.0` root, traversal paths, links, and special
+files are rejected. Extraction occurs only in the cache staging directory,
+then FrobTADS-specific source markers and a deterministic tree hash are
+checked before atomic publication.
 
 Verified content is atomically stored below
 `${FROBTADS_CACHE_DIR}`, `--cache-dir`, or the user cache default. An existing
-complete entry is re-recognized and re-hashed before offline reuse. Partial,
-mismatched, or tampered entries are rejected, and existing entries are never
-replaced. Output reports exact `source=` and `provenance=` paths.
+complete entry is authenticated according to its recorded method,
+re-recognized, and re-hashed before offline reuse. Archive-backed cache entries
+retain the verified distfile so its independently published checksum and size
+can be rechecked. Partial, mismatched, or tampered entries are rejected, and
+existing entries are never replaced. Output reports the acquisition method and
+exact `source=` and `provenance=` paths.
 
 For a manually acquired tree (the preserved offline workflow):
 
@@ -173,10 +202,12 @@ tests/clean-container.sh
 ```
 
 `tests/run.sh` is offline, unprivileged, and uses mocks. On 2026-10-30 it
-passed all 26 scenarios, including refused unauthorized download, failed
-download cleanup, commit and signature mismatch rejection, verified cache
-reuse without network authorization, incomplete-cache rejection, and
-tampered-cache checksum rejection.
+passed all 41 provisioning scenarios plus the container interface suite,
+including refused unauthorized download, failed and
+incomplete archive downloads, commit/signature/checksum mismatch rejection,
+corrupted archive rejection, automatic signature-to-checksum fallback,
+verified cache reuse without network authorization, incomplete-cache
+rejection, and tampered-cache checksum rejection.
 The exact executed/not-executed test record is in
 [test-results.md](test-results.md).
 
@@ -186,10 +217,41 @@ but only when `FROBTADS_FETCH_AUTHORIZED=yes` separately records explicit
 download approval. `CLEAN_CONTAINER_AUTHORIZED=yes` remains required for image
 access and in-container package installation. Dependencies and compilation
 remain inside the disposable container; only the verified source cache is
-created on the host. The harness does not run as part of ordinary regression
-tests or claim success merely because Podman or Docker exists.
+created on the host. `FROBTADS_FETCH_METHOD=git|archive|auto` can select either
+verified acquisition method for the harness. The harness does not run as part
+of ordinary regression tests or claim success merely because Podman or Docker
+exists.
+
+Host authorization records may remain mode 600. The harness bind-mounts the
+record read-only, disables SELinux label separation for the disposable
+container instead of relabeling host files, and has container root create a
+byte-identical mode-600 copy owned by `codex-test` under `/work`. The installer
+receives only that staged copy. It is removed immediately after the authorized
+installation and again by an exit trap on failure. The host record is never
+written, chmodded, chowned, or relabeled by the harness.
+
+On 2026-10-30, clean-container provisioning and validation passed using Podman
+on RHEL 9.5 x86-64 with an Ubuntu 24.04.5 LTS guest, FrobTADS 2.0, TADS 3
+compiler/VM 3.1.3, and standard adv3. The intentional second installation was
+correctly rejected with `ERROR[collision]`, confirming overwrite protection.
+The harness now renders that expected result as
+`PASS: duplicate installation correctly rejected`; any other failure retains
+its original diagnostic and fails the harness. See
+[test-results.md](test-results.md) for the distinction between that completed
+run and checks rerun in the current workspace.
 
 Known limitations: the script does not establish GPG trust, resolve
 distribution repository availability, prove ABI compatibility without
-compiling, or support native Windows provisioning. A complete
-clean-image provisioning run was not performed for this release of the skill.
+compiling, or support native Windows provisioning. The supplied successful
+clean-container log excerpt did not identify which verified source-acquisition
+method was used.
+
+## Reusable development image
+
+The clean-container harness above is deliberately not the everyday container
+interface. For a reusable Ubuntu 24.04 image and disposable offline project
+builds, read [container-development.md](container-development.md). The image
+builder calls `verify-source`, a read-only operation that recognizes the pinned
+FrobTADS tree and checks its deterministic tree hash against the provenance
+record before constructing the temporary context. Native installation, clean
+from-scratch validation, and reusable-image development remain independent.

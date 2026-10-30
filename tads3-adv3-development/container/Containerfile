@@ -1,0 +1,39 @@
+# syntax=docker/dockerfile:1
+ARG UBUNTU_IMAGE=ubuntu:24.04
+
+FROM ${UBUNTU_IMAGE} AS builder
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      build-essential ca-certificates cmake libcurl4-openssl-dev libncurses-dev make \
+ && rm -rf /var/lib/apt/lists/*
+
+# The host image builder creates this context only after authenticating the
+# pinned source and its provenance. No source is downloaded in this build.
+COPY source/ /src/frobtads/
+COPY source-provenance.txt /src/source-provenance.txt
+RUN cmake -S /src/frobtads -B /tmp/build \
+      -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/frobtads \
+ && cmake --build /tmp/build --parallel \
+ && cmake --install /tmp/build \
+ && install -m 0444 /src/source-provenance.txt /opt/frobtads/source-provenance.txt
+
+FROM ${UBUNTU_IMAGE} AS runtime
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libcurl4t64 libncurses6 \
+ && rm -rf /var/lib/apt/lists/* \
+ && groupadd --gid 10001 tads \
+ && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin tads
+COPY --from=builder /opt/frobtads/ /opt/frobtads/
+COPY validation-project/ /opt/validation-project/
+COPY validate-image.sh /usr/local/bin/validate-tads3-image
+ENV PATH=/opt/frobtads/bin:${PATH} \
+    TADS3_HOME=/opt/frobtads/share/frobtads/tads3 \
+    TADS3_INCLUDE=/opt/frobtads/share/frobtads/tads3/include \
+    TADS3_LIB=/opt/frobtads/share/frobtads/tads3/lib
+RUN chmod 0555 /usr/local/bin/validate-tads3-image \
+ && /usr/local/bin/validate-tads3-image
+USER 10001:10001
+WORKDIR /workspace
+CMD ["frob", "--version"]

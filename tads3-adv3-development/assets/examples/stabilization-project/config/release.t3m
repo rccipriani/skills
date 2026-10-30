@@ -1,0 +1,13 @@
+-pre
+-FI "/opt/frobtads/share/frobtads/tads3/include"
+-FL "/opt/frobtads/share/frobtads/tads3/lib"
+-I "/opt/frobtads/share/frobtads/tads3/lib/adv3"
+-I "/opt/frobtads/share/frobtads/tads3/lib/adv3/en_us"
+-DLANGUAGE=en_us
+-DMESSAGESTYLE=neu
+-Fo "../build/release/obj"
+-Fy "../build/release/obj"
+-o "../build/release/stabilization.t3"
+-lib system
+-lib adv3/adv3
+-source "../src/stabilization.t"

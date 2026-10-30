@@ -4,6 +4,40 @@
 
 Before defining grammar, search standard action names and object handlers. Add object-specific handling with `dobjFor(Action)` or `iobjFor(Action)` when the player's wording already maps to a standard action. Use `remapTo()` for a true semantic alias; avoid remapping merely to suppress a useful precondition or report.
 
+Parser words and action class names are different layers. In the standard
+adv3 English grammar, ordinary `turn on generator`, `switch on generator`,
+`turn generator on`, and `activate generator` all select `TurnOnAction`.
+Handle the direct object with `dobjFor(TurnOn)`:
+
+```tads
+generator: Fixture 'compact test generator' 'generator' @generatorRoom
+    isOn = nil
+
+    dobjFor(TurnOn)
+    {
+        verify() { logical; }
+        check()
+        {
+            if (isOn)
+                failCheck('The generator is already running. ');
+        }
+        action()
+        {
+            isOn = true;
+            "The generator starts. ";
+        }
+    }
+;
+```
+
+Do not infer a `SwitchOn` action class merely because the player types the word
+“switch.” A handler can compile yet never receive the intended command. When
+dispatch is uncertain, search the installed language grammar—typically
+`adv3/en_us/en_us.t`—for the `VerbRule` containing the player wording, then
+follow its `: ...Action` target. TADS 3.1.3 defines `VerbRule(TurnOn)` with
+`('turn' | 'switch') 'on'` and maps it to `TurnOnAction`. Confirm behavior with
+both natural phrasings at runtime. The stabilization fixture does exactly this.
+
 ## Action processing
 
 For a transitive object action, the ordinary order is broadly:

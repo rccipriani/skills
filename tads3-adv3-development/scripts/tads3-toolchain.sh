@@ -17,6 +17,7 @@ TADS_SAMPLES_DIR=""
 SOURCE_DIR=""
 FETCH_CACHE_DIR="${FROBTADS_CACHE_DIR:-${XDG_CACHE_HOME:-${HOME:-}/.cache}/tads3-adv3-development/frobtads}"
 DOWNLOAD_AUTHORIZED=0
+FETCH_METHOD="${FROBTADS_FETCH_METHOD:-auto}"
 INSTALL_PREFIX=""
 ALLOWED_ROOT=""
 AUTHORIZATION_RECORD=""
@@ -56,7 +57,7 @@ trap 'exit 143' TERM
 
 usage() {
     printf '%s\n' \
-        'Usage: tads3-toolchain.sh check|validate|repair|plan|fetch|install [options]' \
+        'Usage: tads3-toolchain.sh check|validate|repair|plan|fetch|verify-source|install [options]' \
         '' \
         'Provisioning options:' \
         '  --source DIR                 verified, unpacked FrobTADS source tree' \
@@ -68,6 +69,7 @@ usage() {
         '' \
         'Fetch options:' \
         '  --cache-dir DIR              verified source cache (default: user cache)' \
+        '  --fetch-method METHOD        auto, git, or archive (default: auto)' \
         '  --authorize-download         record explicit authorization for network access' \
         '' \
         'Environment overrides:' \
@@ -88,6 +90,7 @@ while (($#)); do
         --authorization-record) [[ $# -ge 2 ]] || { die arguments 'missing value for --authorization-record'; exit 2; }; AUTHORIZATION_RECORD="$2"; shift 2 ;;
         --execute) EXECUTE=1; shift ;;
         --cache-dir) [[ $# -ge 2 ]] || { die arguments 'missing value for --cache-dir'; exit 2; }; FETCH_CACHE_DIR="$2"; shift 2 ;;
+        --fetch-method) [[ $# -ge 2 ]] || { die arguments 'missing value for --fetch-method'; exit 2; }; FETCH_METHOD="$2"; shift 2 ;;
         --authorize-download) DOWNLOAD_AUTHORIZED=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) printf 'Unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
@@ -423,8 +426,14 @@ fetch_source() {
     local release='v2.0'
     local commit='934b0e4900d9a3a1ab291aa711919f209276c421'
     local signing_key='15B600E72CA59238'
-    local cache entry source provenance actual fetched verify_log stage
+    local archive_name='realnc-frobtads-v2.0_GH0.tar.gz'
+    local archive_url='https://codeload.github.com/realnc/frobtads/tar.gz/v2.0?dummy=/realnc-frobtads-v2.0_GH0.tar.gz'
+    local archive_sha256='c457860d3bf3db3c1129deddbd2c7a295602c7f59560d7e6e81df3bb77a23cd5'
+    local archive_size='5122899'
+    local checksum_source='https://cgit.freebsd.org/ports/tree/games/frobtads/distinfo?id=b1e257a26b880a75cad55681701caf4ff39c9c36'
+    local cache entry source provenance actual fetched verify_log stage method cached_method archive_file listing
 
+    case "$FETCH_METHOD" in auto|git|archive) ;; *) die arguments '--fetch-method must be auto, git, or archive'; return 2 ;; esac
     command -v sha256sum >/dev/null 2>&1 || die fetch 'sha256sum is required'
     [[ -n "$FETCH_CACHE_DIR" ]] || die fetch 'cache directory is empty; use --cache-dir'
     cache="$(canonical_new_path "$FETCH_CACHE_DIR")" || die fetch "cannot canonicalize cache directory: $FETCH_CACHE_DIR"
@@ -434,68 +443,123 @@ fetch_source() {
 
     if [[ -e "$entry" ]]; then
         [[ -d "$source" && -f "$provenance" ]] || die cache "incomplete cache entry; refusing to replace it: $entry"
-        command -v git >/dev/null 2>&1 || die cache 'git is required to reverify the cached commit'
-        fetched="$(git -C "$source" rev-parse --verify HEAD^{commit} 2>/dev/null || true)"
-        [[ "$fetched" == "$commit" ]] || die cache "cached Git identity mismatch: expected $commit, got ${fetched:-missing}"
-        verify_log="$(mktemp "${TMPDIR:-/tmp}/tads3-signature.XXXXXXXX")"
-        if ! git -C "$source" verify-commit --raw "$commit" >"$verify_log" 2>&1 || \
-                ! grep -Eiq "VALIDSIG [[:xdigit:]]*${signing_key}([[:space:]]|$)|GOODSIG ${signing_key}([[:space:]]|$)" "$verify_log"; then
-            sed -n '1,30p' "$verify_log" >&2
-            rm -f -- "$verify_log"
-            die cache 'cached commit signature verification failed'
-            return 1
-        fi
-        rm -f -- "$verify_log"
+        cached_method="$(sed -n 's/^acquisition_method=//p' "$provenance" | head -n1)"
+        [[ -n "$cached_method" ]] || cached_method=git-signature
+        case "$cached_method" in
+            git-signature)
+                command -v git >/dev/null 2>&1 || die cache 'git is required to reverify the cached commit'
+                fetched="$(git -C "$source" rev-parse --verify HEAD^{commit} 2>/dev/null || true)"
+                [[ "$fetched" == "$commit" ]] || die cache "cached Git identity mismatch: expected $commit, got ${fetched:-missing}"
+                verify_log="$(mktemp "${TMPDIR:-/tmp}/tads3-signature.XXXXXXXX")"
+                if ! git -C "$source" verify-commit --raw "$commit" >"$verify_log" 2>&1 || \
+                        ! grep -Eiq "VALIDSIG [[:xdigit:]]*${signing_key}([[:space:]]|$)|GOODSIG ${signing_key}([[:space:]]|$)" "$verify_log"; then
+                    sed -n '1,30p' "$verify_log" >&2; rm -f -- "$verify_log"
+                    die cache 'cached commit signature verification failed'; return 1
+                fi
+                rm -f -- "$verify_log"
+                ;;
+            freebsd-ports-sha256)
+                archive_file="$entry/$archive_name"
+                [[ -f "$archive_file" ]] || die cache 'checksum-verified cache entry is missing its verified archive'
+                actual="$(sha256sum "$archive_file" | awk '{print $1}')"
+                [[ "$actual" == "$archive_sha256" ]] || die cache "cached archive checksum mismatch: expected $archive_sha256, got $actual"
+                [[ "$(wc -c < "$archive_file" | tr -d '[:space:]')" == "$archive_size" ]] || die cache 'cached archive size does not match FreeBSD distinfo'
+                ;;
+            *) die cache "unknown acquisition method in provenance: $cached_method"; return 1 ;;
+        esac
         recognize_source "$source"
         grep -Fxq "commit=$commit" "$provenance" || die cache 'cached provenance has the wrong commit'
         grep -Fxq 'source_tree_sha256_origin=locally_calculated' "$provenance" || die cache 'cached provenance does not label its tree hash origin'
         verify_provenance "$provenance" "$source"
-        printf 'fetch=cache-reuse\nsource=%s\nprovenance=%s\nrelease=%s\ncommit=%s\n' "$source" "$provenance" "$release" "$commit"
+        printf 'fetch=cache-reuse\nacquisition_method=%s\nsource=%s\nprovenance=%s\nrelease=%s\ncommit=%s\n' "$cached_method" "$source" "$provenance" "$release" "$commit"
         return 0
     fi
 
     ((DOWNLOAD_AUTHORIZED == 1)) || die authorization 'downloading requires --authorize-download after explicit user approval'
-    command -v git >/dev/null 2>&1 || die fetch 'git is required'
     mkdir -p -- "$cache"
     [[ -w "$cache" && -x "$cache" ]] || die cache "cache directory is not writable: $cache"
     stage="$(mktemp -d "$cache/.fetch.XXXXXXXX")"
     FETCH_TEMP_DIR="$stage"
-    # Keep this temporary directory outside TEMP_DIR: it must be atomically moved
-    # into the cache only after every verification succeeds.
-    if ! git init -q "$stage/source"; then rm -rf -- "$stage"; die download 'could not initialize temporary repository'; return 1; fi
-    git -C "$stage/source" remote add origin "$repository"
-    if ! git -C "$stage/source" fetch --quiet --no-tags --depth=1 origin "$commit"; then
-        rm -rf -- "$stage"; die download "failed to fetch pinned commit $commit from $repository"; return 1
+
+    method="$FETCH_METHOD"
+    if [[ "$method" == auto || "$method" == git ]]; then
+        if command -v git >/dev/null 2>&1 && git init -q "$stage/source" && \
+                git -C "$stage/source" remote add origin "$repository" && \
+                git -C "$stage/source" fetch --quiet --no-tags --depth=1 origin "$commit"; then
+            fetched="$(git -C "$stage/source" rev-parse --verify FETCH_HEAD^{commit} 2>/dev/null || true)"
+            [[ "$fetched" == "$commit" ]] || { rm -rf -- "$stage"; die integrity "fetched commit mismatch: expected $commit, got ${fetched:-missing}"; return 1; }
+            verify_log="$stage/verify.log"
+            if git -C "$stage/source" verify-commit --raw "$commit" >"$verify_log" 2>&1 && \
+                    grep -Eiq "VALIDSIG [[:xdigit:]]*${signing_key}([[:space:]]|$)|GOODSIG ${signing_key}([[:space:]]|$)" "$verify_log"; then
+                rm -f -- "$verify_log"
+                git -C "$stage/source" checkout --quiet --detach "$commit"
+                method=git-signature
+            elif [[ "$FETCH_METHOD" == git ]]; then
+                sed -n '1,30p' "$verify_log" >&2; rm -rf -- "$stage"
+                die signature 'pinned commit signature could not be verified with the expected upstream key'; return 1
+            else
+                printf 'NOTICE: Git signature verification unavailable; trying the pinned FreeBSD-checksummed archive.\n' >&2
+                rm -rf -- "$stage/source" "$verify_log"
+                method=archive
+            fi
+        elif [[ "$FETCH_METHOD" == git ]]; then
+            rm -rf -- "$stage"; die download "failed to fetch pinned commit $commit from $repository"; return 1
+        else
+            printf 'NOTICE: Git acquisition unavailable; trying the pinned FreeBSD-checksummed archive.\n' >&2
+            rm -rf -- "$stage/source"
+            method=archive
+        fi
     fi
-    fetched="$(git -C "$stage/source" rev-parse --verify FETCH_HEAD^{commit} 2>/dev/null || true)"
-    if [[ "$fetched" != "$commit" ]]; then rm -rf -- "$stage"; die integrity "fetched commit mismatch: expected $commit, got ${fetched:-missing}"; return 1; fi
-    verify_log="$stage/verify.log"
-    if ! git -C "$stage/source" verify-commit --raw "$commit" >"$verify_log" 2>&1; then
-        sed -n '1,30p' "$verify_log" >&2
-        rm -rf -- "$stage"; die signature 'pinned commit signature could not be verified with the local trusted keyring'; return 1
+
+    if [[ "$method" == archive ]]; then
+        command -v curl >/dev/null 2>&1 || { rm -rf -- "$stage"; die fetch 'curl is required for archive acquisition'; return 1; }
+        command -v tar >/dev/null 2>&1 || { rm -rf -- "$stage"; die fetch 'tar is required for archive acquisition'; return 1; }
+        archive_file="$stage/$archive_name"
+        if ! curl --fail --location --proto '=https' --tlsv1.2 --output "$archive_file" "$archive_url"; then
+            rm -rf -- "$stage"; die download "failed to download pinned archive: $archive_url"; return 1
+        fi
+        [[ "$(wc -c < "$archive_file" | tr -d '[:space:]')" == "$archive_size" ]] || { rm -rf -- "$stage"; die integrity 'archive is incomplete or has an unexpected size'; return 1; }
+        actual="$(sha256sum "$archive_file" | awk '{print $1}')"
+        [[ "$actual" == "$archive_sha256" ]] || { rm -rf -- "$stage"; die integrity "archive checksum mismatch: expected $archive_sha256, got $actual"; return 1; }
+        listing="$stage/archive.list"
+        tar -tzf "$archive_file" > "$listing" 2>/dev/null || { rm -rf -- "$stage"; die archive 'verified bytes are not a readable gzip tar archive'; return 1; }
+        [[ -s "$listing" ]] || { rm -rf -- "$stage"; die archive 'archive contains no entries'; return 1; }
+        awk '$0 != "frobtads-2.0" && $0 !~ /^frobtads-2[.]0\// { exit 1 } /(^|\/)\.\.?(\/|$)|\/\// { exit 1 }' "$listing" || { rm -rf -- "$stage"; die archive 'archive contains an unsafe or unexpected path'; return 1; }
+        if tar -tvzf "$archive_file" 2>/dev/null | awk 'substr($1,1,1) !~ /^[-d]$/ { bad=1 } END { exit bad }'; then :; else
+            rm -rf -- "$stage"; die archive 'archive contains links or special files'; return 1
+        fi
+        mkdir "$stage/extracted"
+        tar -xzf "$archive_file" -C "$stage/extracted" || { rm -rf -- "$stage"; die archive 'archive extraction failed'; return 1; }
+        [[ -d "$stage/extracted/frobtads-2.0" ]] || { rm -rf -- "$stage"; die archive 'expected frobtads-2.0 archive root is missing'; return 1; }
+        mv -- "$stage/extracted/frobtads-2.0" "$stage/source"
+        rmdir "$stage/extracted"
+        rm -f -- "$listing"
+        method=freebsd-ports-sha256
     fi
-    if ! grep -Eiq "VALIDSIG [[:xdigit:]]*${signing_key}([[:space:]]|$)|GOODSIG ${signing_key}([[:space:]]|$)" "$verify_log"; then
-        sed -n '1,30p' "$verify_log" >&2
-        rm -rf -- "$stage"; die signature "valid signature was not made by expected upstream key $signing_key"; return 1
-    fi
-    rm -f -- "$verify_log"
-    git -C "$stage/source" checkout --quiet --detach "$commit"
+
     recognize_source "$stage/source"
     actual="$(tree_sha256 "$stage/source")"
     [[ "$actual" =~ ^[[:xdigit:]]{64}$ ]] || { rm -rf -- "$stage"; die integrity 'could not calculate source tree SHA-256'; return 1; }
     {
         printf 'source_repository=https://github.com/realnc/frobtads\n'
-        printf 'source_url=%s\nrelease=%s\ncommit=%s\n' "$repository" "$release" "$commit"
-        printf 'retrieved_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-        printf 'verification_method=git object identity plus cryptographically verified upstream commit signature\n'
-        printf 'commit_signature_key=%s\ncommit_verification_origin=independently_published_upstream_signature\n' "$signing_key"
-        printf 'archive_sha256=\narchive_sha256_origin=not_applicable_git_fetch\n'
+        printf 'source_url=%s\nrelease=%s\ncommit=%s\n' "$([[ "$method" == git-signature ]] && printf '%s' "$repository" || printf '%s' "$archive_url")" "$release" "$commit"
+        printf 'retrieved_utc=%s\nacquisition_method=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$method"
+        if [[ "$method" == git-signature ]]; then
+            printf 'verification_method=git object identity plus cryptographically verified upstream commit signature\n'
+            printf 'commit_signature_key=%s\ncommit_verification_origin=independently_published_upstream_signature\n' "$signing_key"
+            printf 'archive_sha256=\narchive_sha256_origin=not_applicable_git_fetch\n'
+        else
+            printf 'verification_method=exact GitHub codeload archive SHA-256 verified against official FreeBSD ports distinfo\n'
+            printf 'commit_verification_origin=pinned_release_metadata; commit signature not locally verified\n'
+            printf 'archive_filename=%s\narchive_size=%s\narchive_sha256=%s\n' "$archive_name" "$archive_size" "$archive_sha256"
+            printf 'archive_sha256_origin=independently_published_by_freebsd_ports\narchive_sha256_source=%s\n' "$checksum_source"
+        fi
         printf 'source_tree_sha256=%s\nsource_tree_sha256_origin=locally_calculated\n' "$actual"
     } > "$stage/source-provenance.txt"
     [[ ! -e "$entry" ]] || { rm -rf -- "$stage"; die cache "cache entry appeared during fetch; refusing to overwrite: $entry"; return 1; }
     mv -- "$stage" "$entry"
     FETCH_TEMP_DIR=""
-    printf 'fetch=downloaded-and-verified\nsource=%s\nprovenance=%s\nrelease=%s\ncommit=%s\n' "$source" "$provenance" "$release" "$commit"
+    printf 'fetch=downloaded-and-verified\nacquisition_method=%s\nsource=%s\nprovenance=%s\nrelease=%s\ncommit=%s\n' "$method" "$source" "$provenance" "$release" "$commit"
 }
 
 validate_destination() {
@@ -575,6 +639,14 @@ case "$MODE" in
     repair) repair_environment ;;
     plan) check_environment ;;
     fetch) fetch_source ;;
+    verify-source)
+        [[ -n "$SOURCE_DIR" ]] || die arguments 'verify-source requires --source DIR'
+        [[ -n "$PROVENANCE_FILE" ]] || die arguments 'verify-source requires --provenance FILE'
+        verified_source="$(canonical_existing "$SOURCE_DIR")" || die source "source directory does not exist: $SOURCE_DIR"
+        recognize_source "$verified_source"
+        verify_provenance "$PROVENANCE_FILE" "$verified_source"
+        printf 'source_verification=pass\nsource=%s\nprovenance=%s\n' "$verified_source" "$PROVENANCE_FILE"
+        ;;
     install) install_toolchain ;;
     -h|--help|help) usage ;;
     *) printf 'Unknown mode: %s\n' "$MODE" >&2; usage >&2; exit 2 ;;
