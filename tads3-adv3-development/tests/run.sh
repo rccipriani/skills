@@ -82,6 +82,40 @@ MOCK
     : > "$base/tads3/vmrun.cpp"
 }
 
+make_mock_git() {
+    local base="$1"
+    mkdir -p "$base"
+    cat > "$base/git" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == init ]]; then
+    repo="${3}"
+    mkdir -p "$repo/.git"
+    cp -R -- "$MOCK_FETCH_SOURCE"/. "$repo"/
+    exit 0
+fi
+if [[ "${1:-}" == -C ]]; then
+    case "${3:-}" in
+        remote) exit 0 ;;
+        fetch) [[ "${MOCK_FETCH_FAIL:-0}" != 1 ]] || exit 9; exit 0 ;;
+        rev-parse)
+            if [[ "${MOCK_FETCH_MISMATCH:-0}" == 1 ]]; then printf '%040d\n' 0
+            else printf '%s\n' 934b0e4900d9a3a1ab291aa711919f209276c421
+            fi
+            exit 0 ;;
+        verify-commit)
+            [[ "${MOCK_SIGNATURE_FAIL:-0}" != 1 ]] || exit 10
+            printf '[GNUPG:] VALIDSIG 00000000000000000000000015B600E72CA59238 2021-05-09 0 4 0 1 10 00 00000000000000000000000015B600E72CA59238\n' >&2
+            exit 0 ;;
+        checkout) exit 0 ;;
+    esac
+fi
+printf 'unexpected mock git invocation: %s\n' "$*" >&2
+exit 11
+MOCK
+    chmod +x "$base/git"
+}
+
 MOCK_ROOT="$TEST_TMP/mock layout with spaces"
 make_mock_layout "$MOCK_ROOT"
 SYSTEM_PATH=/usr/bin:/bin
@@ -96,6 +130,21 @@ expect_failure 'missing adv3 library' 'ERROR[discovery]: TADS3_LIB' env PATH="$M
 
 SOURCE="$TEST_TMP/FrobTADS source"
 make_mock_source "$SOURCE"
+MOCK_GIT="$TEST_TMP/mock git"
+make_mock_git "$MOCK_GIT"
+FETCH_CACHE="$TEST_TMP/fetch cache"
+expect_failure 'fetch requires explicit download authorization' 'ERROR[authorization]' env PATH="$MOCK_GIT:$SYSTEM_PATH" MOCK_FETCH_SOURCE="$SOURCE" /bin/bash "$SCRIPT" fetch --cache-dir "$FETCH_CACHE"
+expect_failure 'download failure leaves no cache entry' 'ERROR[download]' env PATH="$MOCK_GIT:$SYSTEM_PATH" MOCK_FETCH_SOURCE="$SOURCE" MOCK_FETCH_FAIL=1 /bin/bash "$SCRIPT" fetch --cache-dir "$FETCH_CACHE" --authorize-download
+if [[ ! -e "$FETCH_CACHE/v2.0-934b0e4900d9a3a1ab291aa711919f209276c421" ]]; then record_pass 'failed download is not cached'; else record_fail 'failed download is not cached' 'cache entry exists'; fi
+expect_failure 'fetched commit identity mismatch is rejected' 'ERROR[integrity]' env PATH="$MOCK_GIT:$SYSTEM_PATH" MOCK_FETCH_SOURCE="$SOURCE" MOCK_FETCH_MISMATCH=1 /bin/bash "$SCRIPT" fetch --cache-dir "$FETCH_CACHE" --authorize-download
+expect_failure 'unverifiable commit signature is rejected' 'ERROR[signature]' env PATH="$MOCK_GIT:$SYSTEM_PATH" MOCK_FETCH_SOURCE="$SOURCE" MOCK_SIGNATURE_FAIL=1 /bin/bash "$SCRIPT" fetch --cache-dir "$FETCH_CACHE" --authorize-download
+expect_success 'pinned signed commit is fetched and cached' 'fetch=downloaded-and-verified' env PATH="$MOCK_GIT:$SYSTEM_PATH" MOCK_FETCH_SOURCE="$SOURCE" /bin/bash "$SCRIPT" fetch --cache-dir "$FETCH_CACHE" --authorize-download
+expect_success 'verified cache is reused without network authorization' 'fetch=cache-reuse' env PATH="$MOCK_GIT:$SYSTEM_PATH" MOCK_FETCH_SOURCE="$SOURCE" MOCK_FETCH_FAIL=1 /bin/bash "$SCRIPT" fetch --cache-dir "$FETCH_CACHE"
+printf 'tamper\n' >> "$FETCH_CACHE/v2.0-934b0e4900d9a3a1ab291aa711919f209276c421/source/CMakeLists.txt"
+expect_failure 'cached tree checksum mismatch is rejected' 'source tree checksum mismatch' env PATH="$MOCK_GIT:$SYSTEM_PATH" MOCK_FETCH_SOURCE="$SOURCE" /bin/bash "$SCRIPT" fetch --cache-dir "$FETCH_CACHE"
+INCOMPLETE_CACHE="$TEST_TMP/incomplete cache"
+mkdir -p "$INCOMPLETE_CACHE/v2.0-934b0e4900d9a3a1ab291aa711919f209276c421/source"
+expect_failure 'incomplete cache entry is rejected without replacement' 'ERROR[cache]: incomplete cache entry' env PATH="$MOCK_GIT:$SYSTEM_PATH" MOCK_FETCH_SOURCE="$SOURCE" /bin/bash "$SCRIPT" fetch --cache-dir "$INCOMPLETE_CACHE" --authorize-download
 ALLOWED="$TEST_TMP/owned installs"
 mkdir -p "$ALLOWED"
 expect_failure 'invalid installation prefix' 'ERROR[destination]' /bin/bash "$SCRIPT" install --source "$SOURCE" --prefix /usr --allowed-root "$ALLOWED"

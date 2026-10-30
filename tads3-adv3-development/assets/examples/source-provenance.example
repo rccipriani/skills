@@ -5,7 +5,11 @@ release=v2.0
 commit=934b0e4900d9a3a1ab291aa711919f209276c421
 retrieved_utc=YYYY-MM-DDTHH:MM:SSZ
 verification_method=verified GitHub release metadata and signed commit; describe local trust verification
+commit_signature_key=15B600E72CA59238
+commit_verification_origin=independently_published_upstream_signature
 # Optional archive hash. State whether upstream-published or locally recorded.
 archive_sha256=
+archive_sha256_origin=not_available_upstream
 # Required for reproducible comparison of the exact unpacked tree used.
 source_tree_sha256=REPLACE_WITH_64_HEX_DIGITS
+source_tree_sha256_origin=locally_calculated

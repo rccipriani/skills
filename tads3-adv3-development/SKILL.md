@@ -21,7 +21,7 @@ Copy this entire directory to `${CODEX_HOME}/skills/tads3-adv3-development` or, 
 6. Compile after meaningful changes. Add focused runtime coverage and exercise natural player phrasing, failure paths, state changes, and inherited behavior.
 7. Run the complete project suite and a release build. Review output, not merely exit status. Report assumptions and unresolved uncertainty.
 
-Do not install packages, invoke privilege escalation, download code, overwrite a working toolchain, or change global configuration without explicit authorization. `check`, `validate`, `install`, and `repair` are distinct operations; installation should begin with a plan.
+Do not install packages, invoke privilege escalation, download code, overwrite a working toolchain, or change global configuration without explicit authorization. `check`, `validate`, `fetch`, `install`, and `repair` are distinct operations; acquisition and installation require separate approval.
 
 ## Reference routing
 
@@ -46,10 +46,11 @@ scripts/tads3-toolchain.sh check
 scripts/tads3-toolchain.sh plan
 scripts/tads3-toolchain.sh validate
 scripts/tads3-toolchain.sh repair
+scripts/tads3-toolchain.sh fetch --authorize-download
 scripts/tads3-toolchain.sh install
 ```
 
-`check` and `plan` are read-only. `validate` writes only to a temporary directory and compiles the neutral fixture in `assets/examples/validation-project/`. `repair` diagnoses and proposes actions. `install` prints a plan by default; execution requires `--execute`, verified provenance, an authorized user-owned root, a new prefix, and a separate record of prior approval for the exact source and destination. Read the provisioning reference first.
+`check` and `plan` are read-only. `validate` writes only to a temporary directory and compiles the neutral fixture in `assets/examples/validation-project/`. `repair` diagnoses and proposes actions. `fetch` reuses a verified cache offline or, only with `--authorize-download`, retrieves the pinned FrobTADS commit and generates provenance. `install` prints a plan by default; execution requires `--execute`, verified provenance, an authorized user-owned root, a new prefix, and a separate record of prior approval for the exact source and destination. Read the provisioning reference first.
 
 ## Examples and validation assets
 

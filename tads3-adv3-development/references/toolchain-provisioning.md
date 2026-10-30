@@ -2,14 +2,17 @@
 
 ## Safety model and operations
 
-`scripts/tads3-toolchain.sh` never downloads files, runs a package manager,
-invokes `sudo`, or changes global configuration.
+`scripts/tads3-toolchain.sh` never runs a package manager, invokes `sudo`, or
+changes global configuration. Only its separate `fetch` operation can use the
+network, and only after explicit authorization.
 
 - `check` and `plan`: bounded, read-only discovery plus a platform dependency
   plan. Explicit invalid overrides fail instead of falling back.
 - `validate`: compile and run the neutral fixture entirely below a secure
   temporary directory.
 - `repair`: diagnose and suggest actions without changing files.
+- `fetch`: validate and reuse the pinned source cache, or download only when
+  `--authorize-download` records prior explicit approval.
 - `install`: inspect a supplied source tree and print a plan. Execution needs
   `--execute`, a provenance record, and a separate prior-authorization record.
 
@@ -33,7 +36,10 @@ The checked upstream FrobTADS 2.0 release is tag `v2.0`, commit
 `934b0e4900d9a3a1ab291aa711919f209276c421`, released 2021-05-09 at
 `https://github.com/realnc/frobtads/releases/tag/v2.0`. GitHub identifies the
 commit as signed/verified. The release page does not publish an archive
-checksum, so this skill does not embed one.
+checksum, so this skill does not claim an independently published archive
+checksum. The fetcher instead requires Git object identity and a valid commit
+signature from upstream key ID `15B600E72CA59238` in the operator's trusted
+local GnuPG keyring.
 
 ## Detection and dependency planning
 
@@ -63,25 +69,40 @@ package names but never executes `dnf`, `apt`, or another package manager.
 
 ## Safe source acquisition and provenance
 
-Network acquisition is a separate, explicitly authorized step. Prefer a
-trusted clone at the pinned commit so the signed commit can be verified. An
-approved operator can use Git or download the release archive from the
-upstream URL, but should not pipe remote content into a shell or execute
-downloaded helper scripts.
+Network acquisition is a separate, explicitly authorized operation. It never
+selects a branch, resolves `latest`, or follows a moving tag:
 
-After acquisition:
+```sh
+scripts/tads3-toolchain.sh fetch --authorize-download
+```
+
+The operation fetches only commit
+`934b0e4900d9a3a1ab291aa711919f209276c421` from the official repository,
+checks the fetched object ID, runs `git verify-commit --raw`, requires the
+expected upstream signing key ID, recognizes FrobTADS source markers, and
+calculates a deterministic unpacked-tree SHA-256. If the signing public key is
+not already available under the operator's trust policy, verification fails;
+the script does not silently retrieve or trust a key.
+
+Verified content is atomically stored below
+`${FROBTADS_CACHE_DIR}`, `--cache-dir`, or the user cache default. An existing
+complete entry is re-recognized and re-hashed before offline reuse. Partial,
+mismatched, or tampered entries are rejected, and existing entries are never
+replaced. Output reports exact `source=` and `provenance=` paths.
+
+For a manually acquired tree (the preserved offline workflow):
 
 1. Verify the tag/commit using trusted GitHub release metadata and, for a Git
    checkout, `git verify-commit 934b0e4...` when the signing key trust policy
    is established.
 2. If using an archive, record its SHA-256 immediately. Because upstream does
-   not publish one, label it as a locally recorded reproducibility hash, not an
-   upstream checksum.
+   not publish one, label it as a locally calculated reproducibility hash, not
+   an independently published checksum.
 3. Compute a deterministic unpacked-tree hash:
 
    ```sh
-   find /path/to/frobtads -type f -not -path '*/.git/*' -print0 |
-     LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum
+   (cd /path/to/frobtads && find . -type f -not -path './.git/*' -print0 |
+     LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum)
    ```
 
 4. Copy `assets/examples/source-provenance.example` and record the repository,
@@ -151,14 +172,24 @@ scripts/tads3-toolchain.sh validate
 tests/clean-container.sh
 ```
 
-`tests/run.sh` is offline, unprivileged, and uses mocks. The clean-container
-harness is opt-in and deliberately exits 77 unless an already downloaded,
-verified, unpacked source directory and provenance record are supplied. It does not run as
-part of ordinary regression tests or claim success merely because Podman or
-Docker exists. Image acquisition and in-container package installation still
-require explicit authorization.
+`tests/run.sh` is offline, unprivileged, and uses mocks. On 2026-10-30 it
+passed all 26 scenarios, including refused unauthorized download, failed
+download cleanup, commit and signature mismatch rejection, verified cache
+reuse without network authorization, incomplete-cache rejection, and
+tampered-cache checksum rejection.
+The exact executed/not-executed test record is in
+[test-results.md](test-results.md).
 
-Known limitations: the script does not acquire sources itself, establish GPG
-trust, resolve distribution repository availability, prove ABI compatibility
-without compiling, or support native Windows provisioning. A complete
+The clean-container harness is opt-in. It uses an existing verified source and
+provenance when supplied. If they are absent it can call `fetch` automatically,
+but only when `FROBTADS_FETCH_AUTHORIZED=yes` separately records explicit
+download approval. `CLEAN_CONTAINER_AUTHORIZED=yes` remains required for image
+access and in-container package installation. Dependencies and compilation
+remain inside the disposable container; only the verified source cache is
+created on the host. The harness does not run as part of ordinary regression
+tests or claim success merely because Podman or Docker exists.
+
+Known limitations: the script does not establish GPG trust, resolve
+distribution repository availability, prove ABI compatibility without
+compiling, or support native Windows provisioning. A complete
 clean-image provisioning run was not performed for this release of the skill.

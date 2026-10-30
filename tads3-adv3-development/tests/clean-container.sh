@@ -8,6 +8,7 @@ IMAGE="${TADS3_TEST_IMAGE:-docker.io/library/ubuntu:24.04}"
 SOURCE_DIR="${FROBTADS_SOURCE_DIR:-}"
 PROVENANCE="${FROBTADS_PROVENANCE_FILE:-}"
 AUTHORIZATION="${TADS3_AUTHORIZATION_RECORD:-}"
+CACHE_DIR="${FROBTADS_CACHE_DIR:-}"
 
 if [[ -z "$ENGINE" ]]; then
     if command -v podman >/dev/null 2>&1; then ENGINE=podman
@@ -19,8 +20,21 @@ fi
 if [[ "${CLEAN_CONTAINER_AUTHORIZED:-no}" != yes ]]; then
     printf '%s\n' \
         'SKIP: clean-container execution can pull an image, access package repositories, and install packages inside a disposable container.' \
-        'After explicit authorization, set CLEAN_CONTAINER_AUTHORIZED=yes, FROBTADS_SOURCE_DIR, FROBTADS_PROVENANCE_FILE, and TADS3_AUTHORIZATION_RECORD.'
+        'After explicit authorization, set CLEAN_CONTAINER_AUTHORIZED=yes and TADS3_AUTHORIZATION_RECORD.' \
+        'Supply FROBTADS_SOURCE_DIR and FROBTADS_PROVENANCE_FILE for offline use, or separately authorize acquisition with FROBTADS_FETCH_AUTHORIZED=yes.'
     exit 77
+fi
+if [[ -z "$SOURCE_DIR" || -z "$PROVENANCE" ]]; then
+    if [[ "${FROBTADS_FETCH_AUTHORIZED:-no}" != yes ]]; then
+        printf 'ERROR: source is absent; set FROBTADS_FETCH_AUTHORIZED=yes only after explicit download authorization.\n' >&2
+        exit 2
+    fi
+    fetch_args=(fetch --authorize-download)
+    [[ -z "$CACHE_DIR" ]] || fetch_args+=(--cache-dir "$CACHE_DIR")
+    fetch_output="$("$ROOT/scripts/tads3-toolchain.sh" "${fetch_args[@]}")"
+    printf '%s\n' "$fetch_output"
+    SOURCE_DIR="$(sed -n 's/^source=//p' <<<"$fetch_output" | tail -n1)"
+    PROVENANCE="$(sed -n 's/^provenance=//p' <<<"$fetch_output" | tail -n1)"
 fi
 [[ -d "$SOURCE_DIR" && -f "$PROVENANCE" && -f "$AUTHORIZATION" ]] || { printf 'ERROR: verified source directory, provenance file, or authorization audit record is missing.\n' >&2; exit 2; }
 

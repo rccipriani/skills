@@ -15,15 +15,25 @@ TADS_LIB_DIR=""
 TADS_DOC_DIR=""
 TADS_SAMPLES_DIR=""
 SOURCE_DIR=""
+FETCH_CACHE_DIR="${FROBTADS_CACHE_DIR:-${XDG_CACHE_HOME:-${HOME:-}/.cache}/tads3-adv3-development/frobtads}"
+DOWNLOAD_AUTHORIZED=0
 INSTALL_PREFIX=""
 ALLOWED_ROOT=""
 AUTHORIZATION_RECORD=""
 PROVENANCE_FILE=""
 EXECUTE=0
 TEMP_DIR=""
+FETCH_TEMP_DIR=""
 WRITE_PROBE=""
 
 cleanup() {
+    if [[ -n "$FETCH_TEMP_DIR" && -d "$FETCH_TEMP_DIR" ]]; then
+        case "$FETCH_TEMP_DIR" in
+            */.fetch.*) rm -rf -- "$FETCH_TEMP_DIR" ;;
+            *) printf 'WARNING: refusing to clean unexpected fetch path: %s\n' "$FETCH_TEMP_DIR" >&2 ;;
+        esac
+    fi
+    FETCH_TEMP_DIR=""
     if [[ -n "$WRITE_PROBE" ]]; then
         case "$WRITE_PROBE" in
             */.tads3-write-probe.*) rm -f -- "$WRITE_PROBE" ;;
@@ -46,7 +56,7 @@ trap 'exit 143' TERM
 
 usage() {
     printf '%s\n' \
-        'Usage: tads3-toolchain.sh check|validate|repair|plan|install [options]' \
+        'Usage: tads3-toolchain.sh check|validate|repair|plan|fetch|install [options]' \
         '' \
         'Provisioning options:' \
         '  --source DIR                 verified, unpacked FrobTADS source tree' \
@@ -55,6 +65,10 @@ usage() {
         '  --provenance FILE            source provenance record (required to execute)' \
         '  --authorization-record FILE  prior approval record (required to execute)' \
         '  --execute                    build and install after all safety gates pass' \
+        '' \
+        'Fetch options:' \
+        '  --cache-dir DIR              verified source cache (default: user cache)' \
+        '  --authorize-download         record explicit authorization for network access' \
         '' \
         'Environment overrides:' \
         '  T3MAKE FROB TADS3_HOME TADS3_INCLUDE TADS3_LIB TADS3_DOC TADS3_SAMPLES'
@@ -73,6 +87,8 @@ while (($#)); do
         --provenance) [[ $# -ge 2 ]] || { die arguments 'missing value for --provenance'; exit 2; }; PROVENANCE_FILE="$2"; shift 2 ;;
         --authorization-record) [[ $# -ge 2 ]] || { die arguments 'missing value for --authorization-record'; exit 2; }; AUTHORIZATION_RECORD="$2"; shift 2 ;;
         --execute) EXECUTE=1; shift ;;
+        --cache-dir) [[ $# -ge 2 ]] || { die arguments 'missing value for --cache-dir'; exit 2; }; FETCH_CACHE_DIR="$2"; shift 2 ;;
+        --authorize-download) DOWNLOAD_AUTHORIZED=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) printf 'Unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
     esac
@@ -378,6 +394,11 @@ recognize_source() {
     grep -Eq 'project[[:space:]]*\([[:space:]]*FrobTADS|set[[:space:]]*\([[:space:]]*FROB_VERSION' "$source/CMakeLists.txt" || die source 'CMake project does not identify itself as FrobTADS'
 }
 
+tree_sha256() {
+    local source="$1"
+    (cd "$source" && find . -type f -not -path './.git/*' -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')
+}
+
 verify_provenance() {
     local file="$1" source="$2" expected actual
     [[ -f "$file" ]] || die provenance 'a provenance file is required for execution'
@@ -390,11 +411,91 @@ verify_provenance() {
     if expected="$(sed -n 's/^source_tree_sha256=//p' "$file" | head -n1)" && [[ -n "$expected" ]]; then
         grep -Eq '^[[:xdigit:]]{64}$' <<<"$expected" || die provenance 'source_tree_sha256 is not a SHA-256 value'
         command -v sha256sum >/dev/null 2>&1 || die provenance 'sha256sum is required to verify source_tree_sha256'
-        actual="$(find "$source" -type f -not -path '*/.git/*' -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')"
+        actual="$(tree_sha256 "$source")"
         [[ "$actual" == "$expected" ]] || die provenance "source tree checksum mismatch: expected $expected, got $actual"
     else
         die provenance 'record must contain source_tree_sha256 for the exact unpacked tree'
     fi
+}
+
+fetch_source() {
+    local repository='https://github.com/realnc/frobtads.git'
+    local release='v2.0'
+    local commit='934b0e4900d9a3a1ab291aa711919f209276c421'
+    local signing_key='15B600E72CA59238'
+    local cache entry source provenance actual fetched verify_log stage
+
+    command -v sha256sum >/dev/null 2>&1 || die fetch 'sha256sum is required'
+    [[ -n "$FETCH_CACHE_DIR" ]] || die fetch 'cache directory is empty; use --cache-dir'
+    cache="$(canonical_new_path "$FETCH_CACHE_DIR")" || die fetch "cannot canonicalize cache directory: $FETCH_CACHE_DIR"
+    entry="$cache/$release-$commit"
+    source="$entry/source"
+    provenance="$entry/source-provenance.txt"
+
+    if [[ -e "$entry" ]]; then
+        [[ -d "$source" && -f "$provenance" ]] || die cache "incomplete cache entry; refusing to replace it: $entry"
+        command -v git >/dev/null 2>&1 || die cache 'git is required to reverify the cached commit'
+        fetched="$(git -C "$source" rev-parse --verify HEAD^{commit} 2>/dev/null || true)"
+        [[ "$fetched" == "$commit" ]] || die cache "cached Git identity mismatch: expected $commit, got ${fetched:-missing}"
+        verify_log="$(mktemp "${TMPDIR:-/tmp}/tads3-signature.XXXXXXXX")"
+        if ! git -C "$source" verify-commit --raw "$commit" >"$verify_log" 2>&1 || \
+                ! grep -Eiq "VALIDSIG [[:xdigit:]]*${signing_key}([[:space:]]|$)|GOODSIG ${signing_key}([[:space:]]|$)" "$verify_log"; then
+            sed -n '1,30p' "$verify_log" >&2
+            rm -f -- "$verify_log"
+            die cache 'cached commit signature verification failed'
+            return 1
+        fi
+        rm -f -- "$verify_log"
+        recognize_source "$source"
+        grep -Fxq "commit=$commit" "$provenance" || die cache 'cached provenance has the wrong commit'
+        grep -Fxq 'source_tree_sha256_origin=locally_calculated' "$provenance" || die cache 'cached provenance does not label its tree hash origin'
+        verify_provenance "$provenance" "$source"
+        printf 'fetch=cache-reuse\nsource=%s\nprovenance=%s\nrelease=%s\ncommit=%s\n' "$source" "$provenance" "$release" "$commit"
+        return 0
+    fi
+
+    ((DOWNLOAD_AUTHORIZED == 1)) || die authorization 'downloading requires --authorize-download after explicit user approval'
+    command -v git >/dev/null 2>&1 || die fetch 'git is required'
+    mkdir -p -- "$cache"
+    [[ -w "$cache" && -x "$cache" ]] || die cache "cache directory is not writable: $cache"
+    stage="$(mktemp -d "$cache/.fetch.XXXXXXXX")"
+    FETCH_TEMP_DIR="$stage"
+    # Keep this temporary directory outside TEMP_DIR: it must be atomically moved
+    # into the cache only after every verification succeeds.
+    if ! git init -q "$stage/source"; then rm -rf -- "$stage"; die download 'could not initialize temporary repository'; return 1; fi
+    git -C "$stage/source" remote add origin "$repository"
+    if ! git -C "$stage/source" fetch --quiet --no-tags --depth=1 origin "$commit"; then
+        rm -rf -- "$stage"; die download "failed to fetch pinned commit $commit from $repository"; return 1
+    fi
+    fetched="$(git -C "$stage/source" rev-parse --verify FETCH_HEAD^{commit} 2>/dev/null || true)"
+    if [[ "$fetched" != "$commit" ]]; then rm -rf -- "$stage"; die integrity "fetched commit mismatch: expected $commit, got ${fetched:-missing}"; return 1; fi
+    verify_log="$stage/verify.log"
+    if ! git -C "$stage/source" verify-commit --raw "$commit" >"$verify_log" 2>&1; then
+        sed -n '1,30p' "$verify_log" >&2
+        rm -rf -- "$stage"; die signature 'pinned commit signature could not be verified with the local trusted keyring'; return 1
+    fi
+    if ! grep -Eiq "VALIDSIG [[:xdigit:]]*${signing_key}([[:space:]]|$)|GOODSIG ${signing_key}([[:space:]]|$)" "$verify_log"; then
+        sed -n '1,30p' "$verify_log" >&2
+        rm -rf -- "$stage"; die signature "valid signature was not made by expected upstream key $signing_key"; return 1
+    fi
+    rm -f -- "$verify_log"
+    git -C "$stage/source" checkout --quiet --detach "$commit"
+    recognize_source "$stage/source"
+    actual="$(tree_sha256 "$stage/source")"
+    [[ "$actual" =~ ^[[:xdigit:]]{64}$ ]] || { rm -rf -- "$stage"; die integrity 'could not calculate source tree SHA-256'; return 1; }
+    {
+        printf 'source_repository=https://github.com/realnc/frobtads\n'
+        printf 'source_url=%s\nrelease=%s\ncommit=%s\n' "$repository" "$release" "$commit"
+        printf 'retrieved_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'verification_method=git object identity plus cryptographically verified upstream commit signature\n'
+        printf 'commit_signature_key=%s\ncommit_verification_origin=independently_published_upstream_signature\n' "$signing_key"
+        printf 'archive_sha256=\narchive_sha256_origin=not_applicable_git_fetch\n'
+        printf 'source_tree_sha256=%s\nsource_tree_sha256_origin=locally_calculated\n' "$actual"
+    } > "$stage/source-provenance.txt"
+    [[ ! -e "$entry" ]] || { rm -rf -- "$stage"; die cache "cache entry appeared during fetch; refusing to overwrite: $entry"; return 1; }
+    mv -- "$stage" "$entry"
+    FETCH_TEMP_DIR=""
+    printf 'fetch=downloaded-and-verified\nsource=%s\nprovenance=%s\nrelease=%s\ncommit=%s\n' "$source" "$provenance" "$release" "$commit"
 }
 
 validate_destination() {
@@ -432,7 +533,7 @@ verify_authorization() {
 
 install_toolchain() {
     printf '%s\n' \
-        'network_download=never performed by this script' \
+        'network_download=never performed by install; use the separate authorized fetch operation' \
         'privileged_actions=never performed by this script' \
         'source_policy=use an already acquired, verified upstream source tree'
     dependency_plan
@@ -473,6 +574,7 @@ case "$MODE" in
     validate) validate_environment ;;
     repair) repair_environment ;;
     plan) check_environment ;;
+    fetch) fetch_source ;;
     install) install_toolchain ;;
     -h|--help|help) usage ;;
     *) printf 'Unknown mode: %s\n' "$MODE" >&2; usage >&2; exit 2 ;;
