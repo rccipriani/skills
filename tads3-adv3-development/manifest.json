@@ -1,0 +1,28 @@
+{
+  "name": "tads3-adv3-development",
+  "version": "1.0.0",
+  "created": "2026-10-30",
+  "scope": "TADS 3 with standard adv3",
+  "provenance": {
+    "verified_toolchain": {
+      "frobtads": "2.0",
+      "tads3_compiler": "3.1.3",
+      "tads3_vm": "3.1.3",
+      "adv3": "bundled with TADS 3.1.3"
+    },
+    "sources": [
+      "Official local TADS 3 System Manual",
+      "Official local TADS 3 Technical Manual",
+      "Official local adv3 Tour Guide and Getting Started Guide",
+      "Installed standard-adv3 3.1.3 library source and samples",
+      "Generalized, regression-tested lessons from standard-adv3 project development"
+    ],
+    "excluded": [
+      "Source and story content from prior game projects",
+      "private conversation archives",
+      "credentials and personal configuration",
+      "adv3Lite and TADS 2 implementation guidance"
+    ]
+  },
+  "redistribution": "This skill contains original guidance and a neutral fixture, but no third-party compiler, interpreter, library, or manual. Review upstream licenses before downloading, bundling, or redistributing third-party materials."
+}

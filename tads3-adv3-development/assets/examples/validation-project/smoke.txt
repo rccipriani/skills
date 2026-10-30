@@ -1,0 +1,8 @@
+x demonstration device
+align demonstration device
+x demonstration device
+ask caretaker about demonstration device
+score
+debugstatus
+quit
+y

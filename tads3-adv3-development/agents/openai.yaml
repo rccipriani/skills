@@ -1,0 +1,4 @@
+interface:
+  display_name: "TADS 3 / adv3 Development"
+  short_description: "Build, debug, test, and provision standard adv3"
+  default_prompt: "Use $tads3-adv3-development to inspect and improve this standard-adv3 project."
