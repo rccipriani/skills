@@ -12,7 +12,7 @@ versionInfo: GameID
 
 gameMain: GameMainDef
     initialPlayerChar = me
-    showIntro() { "Standard adv3 validation fixture. "; }
+    showIntro() { "Standard adv3 validation fixture. [VALIDATION intro] "; }
 ;
 
 workroom: Room 'Demonstration Room'
@@ -30,7 +30,8 @@ alignmentAward: Achievement
 
 sampleDevice: Fixture 'brass sample demonstration device' 'demonstration device'
     @workroom
-    "The device's pointer is <<isAligned ? 'aligned' : 'off center'>>. "
+    "The device's pointer is <<isAligned ? 'aligned' : 'off center'>>.
+    [VALIDATION state=<<isAligned ? 'aligned' : 'unaligned'>>] "
     isAligned = nil
 
     dobjFor(Align)
@@ -39,13 +40,15 @@ sampleDevice: Fixture 'brass sample demonstration device' 'demonstration device'
         check()
         {
             if (isAligned)
-                failCheck('The device is already aligned. ');
+                failCheck('The device is already aligned.
+                    [VALIDATION duplicate-action=blocked] ');
         }
         action()
         {
             isAligned = true;
             alignmentAward.awardPointsOnce();
-            "You align the demonstration device. ";
+            "You align the demonstration device.
+            [VALIDATION action=aligned award=5] ";
         }
     }
 ;
@@ -64,8 +67,10 @@ caretaker: Actor 'patient caretaker' 'caretaker' @workroom
 
 + AskTellTopic @sampleDevice
     "<<sampleDevice.isAligned
-        ? 'The caretaker says the reading is now correct.'
-        : 'The caretaker says the pointer needs alignment.'>>"
+        ? 'The caretaker says the reading is now correct.
+            [VALIDATION conversation=aligned]'
+        : 'The caretaker says the pointer needs alignment.
+            [VALIDATION conversation=unaligned]'>>"
 ;
 
 + DefaultAskTellTopic
@@ -78,7 +83,8 @@ clockwork: Fixture 'quiet clockwork mechanism' 'clockwork mechanism' @workroom
     {
         ++tickCount;
         if (tickCount == 2)
-            "A quiet mechanism clicks once. ";
+            "A quiet mechanism clicks once.
+            [VALIDATION event=clockwork-fired] ";
     }
 ;
 
@@ -93,7 +99,8 @@ eventStarter: InitObject
 DefineIAction(DebugStatus)
     execAction()
     {
-        "DEBUG STATUS: aligned=<<sampleDevice.isAligned>>. ";
+        "DEBUG STATUS: aligned=<<sampleDevice.isAligned ? 'true' : 'nil'>>.
+        [VALIDATION debug-command=accepted] ";
     }
     actionTime = 0
 ;
@@ -104,3 +111,17 @@ VerbRule(DebugStatus)
     verbPhrase = 'show/showing debug status'
 ;
 #endif
+
+DefineIAction(ValidationScore)
+    execAction()
+    {
+        "[VALIDATION score=<<libScore.totalScore>>] ";
+    }
+    actionTime = 0
+;
+
+VerbRule(ValidationScore)
+    'validationscore'
+    : ValidationScoreAction
+    verbPhrase = 'report/reporting validation score'
+;

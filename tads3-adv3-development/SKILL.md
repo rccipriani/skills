@@ -43,12 +43,13 @@ Run the bundled script from the skill directory:
 
 ```sh
 scripts/tads3-toolchain.sh check
+scripts/tads3-toolchain.sh plan
 scripts/tads3-toolchain.sh validate
 scripts/tads3-toolchain.sh repair
 scripts/tads3-toolchain.sh install
 ```
 
-`check` is read-only. `validate` writes only to a temporary directory and compiles the neutral fixture in `assets/examples/validation-project/`. `repair` diagnoses and proposes actions. `install` prints a plan unless explicitly given approved execution inputs; read the provisioning reference first.
+`check` and `plan` are read-only. `validate` writes only to a temporary directory and compiles the neutral fixture in `assets/examples/validation-project/`. `repair` diagnoses and proposes actions. `install` prints a plan by default; execution requires `--execute`, verified provenance, an authorized user-owned root, a new prefix, and a separate record of prior approval for the exact source and destination. Read the provisioning reference first.
 
 ## Examples and validation assets
 
