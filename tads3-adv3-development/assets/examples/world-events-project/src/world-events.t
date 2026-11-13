@@ -37,6 +37,10 @@ chandelier: Fixture 'enormous crystal chandelier/light' 'chandelier' @lab
     "The crystal chandelier is fixed to a ceiling rose. [WORLD chandelier] "
 ;
 
++ ceilingRose: Component 'ornate plaster ceiling rose/medallion' 'ceiling rose'
+    "The plaster ceiling rose is molded with musical notes. [WORLD nested-scenery] "
+;
+
 portraits: Decoration 'faded dusty portraits/paintings/pictures' 'portraits' @lab
     isPlural = true
     desc = "The faded portraits show unsmiling musicians. [WORLD decoration] "

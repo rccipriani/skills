@@ -96,20 +96,28 @@ Start with inherited behavior and run the command before customizing it.
 Perform this review per room; it is intentionally human-guided and introduces
 no LLM or NLP dependency into tests.
 
-1. Extract concrete physical noun phrases from `desc`, first-visit text,
-   special descriptions, and state-dependent variants.
-2. Classify each as portable, fixed interactive, limited decoration,
+1. Extract concrete physical noun phrases from room `desc`, first-visit text,
+   special descriptions, action responses, and state-dependent variants.
+2. Repeat the extraction for every addressable object's `desc` and other prose
+   reached in the first pass. Continue to a fixed point: a newly modeled object
+   can itself introduce another concrete noun. This recursive step is required;
+   checking room descriptions alone misses details such as a microphone stand
+   and chair mentioned only by a stage, or a ceiling rose mentioned only by a
+   chandelier.
+3. Classify each as portable, fixed interactive, limited decoration,
    furniture/support/container, architectural part, or intentional atmosphere.
-3. Map every addressable noun to one object and an appropriate semantic class.
+4. Map every addressable noun to one object and an appropriate semantic class.
    Note intentional non-addressable exceptions with the reason.
-4. Compare prose words with `vocabWords`: test primary noun, synonyms,
+5. Compare prose words with `vocabWords`: test primary noun, synonyms,
    plurals, multiword forms, and distinguishing adjectives.
-5. Exercise `EXAMINE` plus actions the prose affords: take/move, sit/lie/stand,
+6. Exercise `EXAMINE` plus actions the prose affords: take/move, sit/lie/stand,
    look under, open/close, put in/on, or the object's signature verb.
-6. Test scope before and after opening, travel, posture, or state changes.
+7. Test scope before and after opening, travel, posture, or state changes.
    Investigate ambiguity, misleading refusals, duplicate room parts, and
    unimplemented references.
-7. Keep a transcript with semantic output/state assertions. Compilation alone
+8. Keep a transcript with semantic output/state assertions. Include at least
+   one noun introduced only by another object's description, so regression
+   coverage proves the audit is recursive. Compilation alone
    does not establish coverage.
 
 The furnished-room fixture and automated audit examples are in

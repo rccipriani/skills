@@ -45,6 +45,7 @@ for marker in '[WORLD chandelier]' '[WORLD decoration]' '[WORLD piano]' \
     '[WORLD chair-moved]' '[WORLD cabinet]' '[WORLD room-part]'; do
     require_marker "$scenery" "$marker"
 done
+require_marker "$scenery" '[WORLD nested-scenery]'
 require_marker "$scenery" "You can't take that."
 require_marker "$events" '[EVENT duplicate-prevented]'
 require_marker "$events" '[EVENT delayed-fired]'

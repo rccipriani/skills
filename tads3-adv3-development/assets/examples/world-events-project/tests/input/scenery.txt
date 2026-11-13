@@ -1,4 +1,5 @@
 x chandelier
+x ceiling rose
 take chandelier
 x portraits
 x grand piano
