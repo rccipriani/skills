@@ -13,6 +13,11 @@
 
 Model identity, vocabulary, location, containment, state, and behavior separately. Avoid a prose-only object that merely prints the desired outcome while its adv3 state contradicts it.
 
+For a fuller verified class-selection table, furniture patterns, English
+vocabulary syntax, and a room-description coverage audit, read
+[scenery-and-furniture.md](scenery-and-furniture.md). Apply that audit whenever
+writing or substantially revising room prose.
+
 ## Vocabulary and parser affordance
 
 Define useful adjectives and nouns in `vocabWords`. Include ordinary synonyms players will infer from room prose. Prominent concrete nouns in descriptions should normally resolve to an object or intentional decoration. Do not delete good vocabulary solely to make a regression command unambiguous; use a more explicit test noun phrase unless ambiguity is the defect.

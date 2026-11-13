@@ -1,5 +1,27 @@
 # Provisioning test results
 
+## Scenery and event regression, 2026-11-13
+
+- `tests/run.sh`: exit 0 both before and after the feature changes; 41
+  provisioning scenarios and the reusable-container interface mock suite
+  passed.
+- `tests/adv3-stabilization.sh`: exit 0 both before and after the feature
+  changes; release and debug compilation plus five gameplay runs passed.
+- `tests/world-events.sh`: exit 0 with the pre-existing
+  `localhost/tads3-dev:2.0` image. Release compilation and two offline gameplay
+  transcripts passed. Assertions covered scenery/furniture vocabulary and
+  behavior, a one-shot fuse exactly once, a recurring daemon, conditional
+  escalation, duplicate prevention, explicit cancellation, two room-return
+  triggers, and hidden sensory output with persistent state mutation.
+- `bash -n` over all shell scripts used by the workflows: exit 0;
+  `python3 -m json.tool manifest.json`: exit 0.
+- Automated save/restore was not added because the current transcript harness
+  does not control the interpreter's save-file prompt. The event reference
+  gives a manual procedure and does not claim this behavior as executed.
+
+All live compilation/gameplay above used disposable rootless Podman containers
+with networking disabled and the FrobTADS 2.0 / TADS 3.1.3 standard-adv3 image.
+
 Results recorded 2026-10-30 in the skill workspace:
 
 - `bash -n scripts/tads3-toolchain.sh tests/run.sh tests/clean-container.sh`:

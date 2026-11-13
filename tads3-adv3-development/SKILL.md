@@ -17,9 +17,10 @@ Copy this entire directory to `${CODEX_HOME}/skills/tads3-adv3-development` or, 
 2. Determine whether the project uses standard adv3. Check includes and `-lib` entries instead of guessing.
 3. Choose native or reusable-container mode. Run `scripts/tads3-toolchain.sh check` when native toolchain locations or versions are unknown. Run `scripts/tads3-container.sh check` for container mode. Read [toolchain-provisioning.md](references/toolchain-provisioning.md) for installation, validation, or repair work and [container-development.md](references/container-development.md) for isolated builds and gameplay tests.
 4. Consult the relevant reference below before using an unfamiliar class, method, macro, hook, or compiler option. Prefer the installed library source and official manuals over memory.
-5. Model the world with existing adv3 classes and one authoritative state representation. Add the smallest coherent customization.
-6. Compile after meaningful changes. Add focused runtime coverage and exercise natural player phrasing, failure paths, state changes, and inherited behavior.
-7. Run the complete project suite and a release build. Review output, not merely exit status. Report assumptions and unresolved uncertainty.
+5. Model the world with existing adv3 classes and one authoritative state representation. Audit every concrete noun introduced by room prose: make expected objects parser-addressable, select semantic scenery/furniture classes, and test the prose vocabulary and plausible interactions. Read [scenery-and-furniture.md](references/scenery-and-furniture.md) for this audit and class-selection rules.
+6. When suspense, delayed consequences, changing environments, sensory effects, or NPC routines matter, choose the verified scheduling mechanism and manage its reference, duplicate prevention, cancellation, persistent stage, and cleanup explicitly. Read [event-driven-gameplay.md](references/event-driven-gameplay.md); validate first-run timing, repetition, cancellation, room transitions, and sensory suppression.
+7. Compile after meaningful changes. Add focused runtime coverage and exercise natural player phrasing, failure paths, state changes, inherited behavior, and event negative cases.
+8. Run the complete project suite and a release build. Review output, not merely exit status. Report assumptions and unresolved uncertainty.
 
 Do not install packages, invoke privilege escalation, download code, overwrite a working toolchain, or change global configuration without explicit authorization. `check`, `validate`, `fetch`, `install`, and `repair` are distinct operations; acquisition and installation require separate approval.
 
@@ -27,10 +28,12 @@ Do not install packages, invoke privilege escalation, download code, overwrite a
 
 - Language, object syntax, inheritance, modification, includes, `.t3m`, debug/release, and diagnostics: [language-and-build.md](references/language-and-build.md)
 - Rooms, objects, containment, senses, vocabulary, state, descriptions, and disambiguation: [adv3-object-model.md](references/adv3-object-model.md)
+- Scenery/furniture class selection, English vocabulary, interactions, and concrete-noun coverage audit: [scenery-and-furniture.md](references/scenery-and-furniture.md)
 - Actions, grammar, literals, remapping, verification, preconditions, and responses: [parser-and-actions.md](references/parser-and-actions.md)
 - Movement API distinctions, connectors, room entry, and travel memory: [travel-and-containment.md](references/travel-and-containment.md)
 - Actors, topics, conversation state, presence, and NPC testing: [actors-and-conversation.md](references/actors-and-conversation.md)
 - Turn time, `actionTime`, daemons, fuses, and scoring: [events-and-scoring.md](references/events-and-scoring.md)
+- Event timing, sensory scheduling, design patterns, lifecycle, cancellation, and save/restore: [event-driven-gameplay.md](references/event-driven-gameplay.md)
 - Transcript harnesses, parser-affordance review, reachability, debug commands, and release QA: [testing-and-quality.md](references/testing-and-quality.md)
 - Verified reusable lessons, limitations, and evidence status: [common-pitfalls.md](references/common-pitfalls.md)
 - Blind-playtest handling and interface limitations: [blind-playtests.md](references/blind-playtests.md)
@@ -76,6 +79,10 @@ Use `assets/examples/stabilization-project/` and
 `config/`, standard `TurnOn` dispatch, paired lockable doors, and explicit
 puzzle-object placement. Detailed explanations remain in the routed reference
 documents above.
+
+Use `assets/examples/world-events-project/` and `tests/world-events.sh` for a
+compiled furnished-room example and verified `Fuse`, `Daemon`, `SenseFuse`,
+room-entry, duplicate-prevention, staged-event, and cleanup behavior.
 
 ## Evidence rules
 

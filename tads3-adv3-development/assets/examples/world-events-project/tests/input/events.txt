@@ -1,0 +1,24 @@
+eventstatus
+push start button
+push start button
+eventstatus
+z
+eventstatus
+z
+eventstatus
+take key
+z
+take clue
+z
+push stop button
+eventstatus
+z
+z
+eventstatus
+n
+s
+n
+s
+eventstatus
+quit
+y

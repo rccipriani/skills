@@ -1,0 +1,18 @@
+x chandelier
+take chandelier
+x portraits
+x grand piano
+play piano
+x brass key
+take key
+drop key
+sit on oak chair
+stand
+look under chair
+move overturned chair
+x cabinet
+open cabinet
+x note
+x plaster arch
+quit
+y

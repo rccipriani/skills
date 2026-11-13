@@ -17,6 +17,11 @@ The scheduler advances according to action time. Nested and replacement actions 
 
 Retain the event object when later cancellation is required and remove it through the event API. Guard state-dependent callbacks against stale assumptions.
 
+Read [event-driven-gameplay.md](event-driven-gameplay.md) before implementing
+delayed, recurring, conditional, room-entry, NPC, escalating, or sensory
+events. It documents verified first-run timing, sensory semantics, lifecycle,
+and save/restore considerations and points to an executable fixture.
+
 ## Debugging time
 
 Put inspection-only developer commands behind `#ifdef __DEBUG` and set `actionTime = 0`. Compile both debug and release images; verify the grammar is absent in release, not merely rejected at runtime.
